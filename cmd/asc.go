@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"asc/internal/config"
 
@@ -185,6 +187,7 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 				for i := max(0, len(previousGlowOutputLines)-2); i < len(previousGlowOutputLines); i++ {
 					fmt.Println(previousGlowOutputLines[i])
 				}
+				saveNewConversation(previousGlowOutput, message)
 				break
 			}
 			buffer.WriteString(scanner.Text() + "\n")
@@ -266,6 +269,50 @@ correct a typo in a previous message.`,
 		logger.Debug("Editing previous message")
 		// TODO: Implement message editing
 	},
+}
+
+type Conversation struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message"`
+	Response  string    `json:"response"`
+}
+
+func saveNewConversation(response, message string) error {
+	// Get data directory
+	dataDir, err := config.GetDataDir()
+	if err != nil {
+		return fmt.Errorf("failed to get data directory: %w", err)
+	}
+
+	// Create conversations directory if it doesn't exist
+	conversationsDir := filepath.Join(dataDir, "conversations")
+	if err := os.MkdirAll(conversationsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create conversations directory: %w", err)
+	}
+
+	// Create new conversation
+	conversation := Conversation{
+		ID:        time.Now().Format("20060102150405"),
+		Timestamp: time.Now(),
+		Message:   message,
+		Response:  response,
+	}
+
+	// Convert to JSON
+	data, err := json.MarshalIndent(conversation, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal conversation: %w", err)
+	}
+
+	// Save to file
+	filename := filepath.Join(conversationsDir, conversation.ID+".json")
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("failed to save conversation: %w", err)
+	}
+
+	logger.Debug("Saved conversation", "id", conversation.ID)
+	return nil
 }
 
 func main() {
