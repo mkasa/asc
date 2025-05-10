@@ -6,8 +6,9 @@ VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 # Installation paths
-PREFIX?=/usr/local
+PREFIX=${HOME}/.local
 BINDIR=$(PREFIX)/bin
+SHAREDIR=$(PREFIX)/share/asc
 
 # Build the application
 build:
@@ -21,12 +22,19 @@ install: build
 	@cp $(BINARY_NAME) $(BINDIR)/
 	@chmod 755 $(BINDIR)/$(BINARY_NAME)
 	@echo "Installed in $(BINDIR)/$(BINARY_NAME)"
+	@echo "Installing assets..."
+	@mkdir -p $(SHAREDIR)
+	@cp assets/*.json $(SHAREDIR)/
+	@echo "Installed assets in $(SHAREDIR)"
 
 # Uninstall the application
 uninstall:
 	@echo "Uninstalling $(BINARY_NAME)..."
 	@rm -f $(BINDIR)/$(BINARY_NAME)
 	@echo "Uninstalled from $(BINDIR)/$(BINARY_NAME)"
+	@echo "Removing assets..."
+	@rm -rf $(SHAREDIR)
+	@echo "Removed assets from $(SHAREDIR)"
 
 # Clean build artifacts
 clean:
