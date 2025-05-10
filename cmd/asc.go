@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"asc/internal/config"
@@ -168,8 +169,23 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 				}
 			}
 			buffer.WriteString(scanner.Text() + "\n")
+
 			// Execute glow command with buffer content
 			glowCmd := exec.Command("glow")
+			glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+
+			// Check if style file exists
+			shareDir, err := config.GetShareDir()
+			if err != nil {
+				logger.Error("Failed to get share directory", "error", err)
+				os.Exit(1)
+			}
+			stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
+			if _, err := os.Stat(stylePath); err == nil {
+				glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
+				logger.Debug("Using custom style", "path", stylePath)
+			}
+
 			glowCmd.Stdin = strings.NewReader(buffer.String())
 			glowCmd.Stdout = os.Stdout
 			var glowOutput strings.Builder
