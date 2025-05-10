@@ -165,8 +165,14 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 						os.Exit(1)
 					}
 					// Stream is closed (EOF)
-					break
+					// break
 				}
+				// No more data and no error (EOF)
+				previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
+				for i := max(0, len(previousGlowOutputLines)-2); i < len(previousGlowOutputLines); i++ {
+					fmt.Println(previousGlowOutputLines[i])
+				}
+				break
 			}
 			buffer.WriteString(scanner.Text() + "\n")
 
