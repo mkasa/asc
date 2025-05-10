@@ -90,7 +90,7 @@ Examples:
 			}
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			logger.Info("Starting AI conversation")
+			logger.Debug("Starting AI conversation")
 		},
 	}
 
@@ -135,7 +135,7 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 		}
 
 		message := args[0]
-		logger.Info("Starting new conversation", "message", message)
+		logger.Debug("Starting new conversation", "message", message)
 
 		// Execute sgpt with --stream option
 		sgptCmd := exec.Command("sgpt", "--stream", message)
@@ -187,16 +187,20 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 			}
 
 			glowCmd.Stdin = strings.NewReader(buffer.String())
-			glowCmd.Stdout = os.Stdout
+			glowCmd.Stderr = os.Stderr
 			var glowOutput strings.Builder
 			glowOutput = strings.Builder{}
-			glowCmd.Stderr = &glowOutput
+			glowCmd.Stdout = &glowOutput
 			if err := glowCmd.Run(); err != nil {
 				logger.Error("Failed to execute glow", "error", err)
 				os.Exit(1)
 			}
 			if previousGlowOutput != glowOutput.String() {
-				fmt.Println(glowOutput.String())
+				previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
+				glowOutputLines := strings.Split(glowOutput.String(), "\n")
+				for i := max(0, len(previousGlowOutputLines)-2); i < len(glowOutputLines)-2; i++ {
+					fmt.Println(glowOutputLines[i])
+				}
 				previousGlowOutput = glowOutput.String()
 			}
 		}
@@ -218,7 +222,7 @@ var viewCmd = &cobra.Command{
 Shows a list of all conversations with their IDs, timestamps, and previews.
 You can use these IDs with other commands like 'append' and 'edit'.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		logger.Info("Viewing conversation history")
+		logger.Debug("Viewing conversation history")
 		// TODO: Implement conversation history view
 	},
 }
@@ -233,7 +237,7 @@ If no conversation ID is specified, continues with the most recent conversation.
 The message will be added to the existing conversation context,
 allowing AI to maintain context from previous messages.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		logger.Info("Continuing previous conversation")
+		logger.Debug("Continuing previous conversation")
 		// TODO: Implement conversation continuation
 	},
 }
@@ -248,7 +252,7 @@ If no message ID is specified, edits the most recent message.
 This is useful when you want to rephrase a question or
 correct a typo in a previous message.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		logger.Info("Editing previous message")
+		logger.Debug("Editing previous message")
 		// TODO: Implement message editing
 	},
 }
