@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"strings"
+
+	"asc/internal/config"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -60,6 +66,27 @@ Examples:
 				ReportTimestamp: true,
 				Level:           level,
 			})
+
+			// Check required commands
+			if cmd.Name() != "version" {
+				// Check glow command
+				if _, err := exec.LookPath("glow"); err != nil {
+					logger.Error("Required command not found", "command", "glow", "error", err)
+					os.Exit(1)
+				}
+
+				// Check sgpt command
+				if _, err := exec.LookPath("sgpt"); err != nil {
+					logger.Error("Required command not found", "command", "sgpt", "error", err)
+					os.Exit(1)
+				}
+
+				// Ensure share directory exists
+				if err := config.EnsureShareDir(); err != nil {
+					logger.Error("Failed to ensure share directory", "error", err)
+					os.Exit(1)
+				}
+			}
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			logger.Info("Starting AI conversation")
@@ -100,9 +127,70 @@ The conversation will be saved in your data directory for future reference.
 
 If a message is provided, it will be sent as the first message to AI.
 Otherwise, you'll enter an interactive mode where you can type messages.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		logger.Info("Starting new conversation")
-		// TODO: Implement new conversation mode
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			logger.Error("Message is required")
+			os.Exit(1)
+		}
+
+		message := args[0]
+		logger.Info("Starting new conversation", "message", message)
+
+		// Execute sgpt with --stream option
+		sgptCmd := exec.Command("sgpt", "--stream", message)
+		stdout, err := sgptCmd.StdoutPipe()
+		if err != nil {
+			logger.Error("Failed to create stdout pipe", "error", err)
+			os.Exit(1)
+		}
+		sgptCmd.Stderr = os.Stderr
+
+		if err := sgptCmd.Start(); err != nil {
+			logger.Error("Failed to start sgpt", "error", err)
+			os.Exit(1)
+		}
+
+		// Buffer for storing all output
+		var buffer strings.Builder
+		scanner := bufio.NewScanner(stdout)
+		var previousGlowOutput string
+		previousGlowOutput = ""
+
+		for {
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					if err != io.EOF {
+						logger.Error("Error reading sgpt output", "error", err)
+						os.Exit(1)
+					}
+					// Stream is closed (EOF)
+					break
+				}
+			}
+			buffer.WriteString(scanner.Text() + "\n")
+			// Execute glow command with buffer content
+			glowCmd := exec.Command("glow")
+			glowCmd.Stdin = strings.NewReader(buffer.String())
+			glowCmd.Stdout = os.Stdout
+			var glowOutput strings.Builder
+			glowOutput = strings.Builder{}
+			glowCmd.Stderr = &glowOutput
+			if err := glowCmd.Run(); err != nil {
+				logger.Error("Failed to execute glow", "error", err)
+				os.Exit(1)
+			}
+			if previousGlowOutput != glowOutput.String() {
+				fmt.Println(glowOutput.String())
+				previousGlowOutput = glowOutput.String()
+			}
+		}
+
+		if err := sgptCmd.Wait(); err != nil {
+			logger.Error("sgpt command failed", "error", err)
+			os.Exit(1)
+		}
+
+		return nil
 	},
 }
 
