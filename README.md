@@ -11,6 +11,28 @@ A command-line tool for interacting with AI. Have natural conversations with AI 
 - Conversation history tracking
 - Follow-up questions support
 
+## Installation
+
+### From Source
+
+1. Make sure you have Go 1.21 or later installed
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/asc.git
+   cd asc
+   ```
+3. Build and install:
+   ```bash
+   make install
+   ```
+
+### Uninstall
+
+To uninstall the program:
+```bash
+make uninstall
+```
+
 ## Project Structure
 
 ```
