@@ -158,8 +158,10 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 			os.Exit(1)
 		}
 		stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
+		hasStyleFile := false
 		if _, err := os.Stat(stylePath); err == nil {
 			logger.Debug("Using custom style", "path", stylePath)
+			hasStyleFile = true
 		}
 
 		// Buffer for storing all output
@@ -191,7 +193,7 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 			glowCmd := exec.Command("glow")
 			glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
 
-			if _, err := os.Stat(stylePath); err == nil {
+			if hasStyleFile {
 				glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
 			}
 
