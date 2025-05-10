@@ -151,6 +151,17 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 			os.Exit(1)
 		}
 
+		// Check if style file exists
+		shareDir, err := config.GetShareDir()
+		if err != nil {
+			logger.Error("Failed to get share directory", "error", err)
+			os.Exit(1)
+		}
+		stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
+		if _, err := os.Stat(stylePath); err == nil {
+			logger.Debug("Using custom style", "path", stylePath)
+		}
+
 		// Buffer for storing all output
 		var buffer strings.Builder
 		scanner := bufio.NewScanner(stdout)
@@ -180,16 +191,8 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 			glowCmd := exec.Command("glow")
 			glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
 
-			// Check if style file exists
-			shareDir, err := config.GetShareDir()
-			if err != nil {
-				logger.Error("Failed to get share directory", "error", err)
-				os.Exit(1)
-			}
-			stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
 			if _, err := os.Stat(stylePath); err == nil {
 				glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
-				logger.Debug("Using custom style", "path", stylePath)
 			}
 
 			glowCmd.Stdin = strings.NewReader(buffer.String())
