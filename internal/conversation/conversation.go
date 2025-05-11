@@ -21,6 +21,7 @@ type Conversation struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 	Response  string    `json:"response"`
+	FilePath  string    `json:"file_path"`
 }
 
 func SaveNewConversation(response, message string, logger *log.Logger) error {
@@ -56,7 +57,19 @@ func SaveNewConversation(response, message string, logger *log.Logger) error {
 		return fmt.Errorf("failed to save conversation: %w", err)
 	}
 
-	logger.Debug("Saved conversation", "id", conversation.ID)
+	// ファイルパスを設定
+	conversation.FilePath = filename
+
+	// ファイルパスを含めて再度保存
+	data, err = json.MarshalIndent(conversation, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal conversation with file path: %w", err)
+	}
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("failed to save conversation with file path: %w", err)
+	}
+
+	logger.Debug("Saved conversation", "id", conversation.ID, "path", filename)
 	return nil
 }
 
@@ -75,7 +88,8 @@ func LoadConversations(logger *log.Logger) ([]Conversation, error) {
 	var conversations []Conversation
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-			data, err := os.ReadFile(filepath.Join(conversationsDir, file.Name()))
+			filePath := filepath.Join(conversationsDir, file.Name())
+			data, err := os.ReadFile(filePath)
 			if err != nil {
 				logger.Error("Failed to read conversation file", "file", file.Name(), "error", err)
 				continue
@@ -86,6 +100,22 @@ func LoadConversations(logger *log.Logger) ([]Conversation, error) {
 				logger.Error("Failed to unmarshal conversation", "file", file.Name(), "error", err)
 				continue
 			}
+
+			// ファイルパスが設定されていない場合は設定
+			if conv.FilePath == "" {
+				conv.FilePath = filePath
+				// ファイルパスを含めて再度保存
+				data, err = json.MarshalIndent(conv, "", "  ")
+				if err != nil {
+					logger.Error("Failed to marshal conversation with file path", "file", file.Name(), "error", err)
+					continue
+				}
+				if err := os.WriteFile(filePath, data, 0644); err != nil {
+					logger.Error("Failed to save conversation with file path", "file", file.Name(), "error", err)
+					continue
+				}
+			}
+
 			conversations = append(conversations, conv)
 		}
 	}
@@ -165,7 +195,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 			for i := max(0, len(previousGlowOutputLines)-2); i < len(previousGlowOutputLines); i++ {
 				fmt.Println(previousGlowOutputLines[i])
 			}
-			if err := SaveNewConversation(previousGlowOutput, message, logger); err != nil {
+			if err := SaveNewConversation(buffer.String(), message, logger); err != nil {
 				return fmt.Errorf("failed to save conversation: %w", err)
 			}
 			break

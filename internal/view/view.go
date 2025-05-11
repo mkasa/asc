@@ -72,7 +72,7 @@ func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 		return nil
 	}
 
-	c := exec.Command("less", "-SR", tempFile.Name())
+	c := exec.Command("glow", "-p", tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return nil
 	})

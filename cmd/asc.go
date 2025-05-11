@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"asc/internal/config"
@@ -207,72 +205,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	return m.table.View()
-}
-
-func showConversation(conv Conversation) {
-	// Execute glow command with conversation content
-	glowCmd := exec.Command("glow")
-	glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
-
-	// Check if style file exists
-	shareDir, err := config.GetShareDir()
-	if err != nil {
-		logger.Error("Failed to get share directory", "error", err)
-		return
-	}
-	stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
-	if _, err := os.Stat(stylePath); err == nil {
-		glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
-	}
-
-	// Format conversation content
-	content := fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
-		conv.ID, conv.Message, conv.Response)
-
-	glowCmd.Stdin = strings.NewReader(content)
-	glowCmd.Stdout = os.Stdout
-	glowCmd.Stderr = os.Stderr
-	if err := glowCmd.Run(); err != nil {
-		logger.Error("Failed to execute glow", "error", err)
-	}
-}
-
-func loadConversations() ([]Conversation, error) {
-	dataDir, err := config.GetDataDir()
-	if err != nil {
-		return nil, err
-	}
-
-	conversationsDir := filepath.Join(dataDir, "conversations")
-	files, err := os.ReadDir(conversationsDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var conversations []Conversation
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-			data, err := os.ReadFile(filepath.Join(conversationsDir, file.Name()))
-			if err != nil {
-				logger.Error("Failed to read conversation file", "file", file.Name(), "error", err)
-				continue
-			}
-
-			var conv Conversation
-			if err := json.Unmarshal(data, &conv); err != nil {
-				logger.Error("Failed to unmarshal conversation", "file", file.Name(), "error", err)
-				continue
-			}
-			conversations = append(conversations, conv)
-		}
-	}
-
-	// Sort conversations by timestamp (newest first)
-	sort.Slice(conversations, func(i, j int) bool {
-		return conversations[i].Timestamp.After(conversations[j].Timestamp)
-	})
-
-	return conversations, nil
 }
 
 var viewCmd = &cobra.Command{
