@@ -280,7 +280,24 @@ func (m model) View() string {
 		content += "Press Enter to confirm, 'n' to cancel"
 		return style.Render(content)
 	}
-	return m.table.View()
+
+	// Create help message
+	helpStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(1, 2)
+
+	helpContent := "Keybindings:\n" +
+		"  v: View conversation with glow\n" +
+		"  V: View conversation with less\n" +
+		"  e: Edit conversation\n" +
+		"  d: Delete conversation\n" +
+		"  q: Quit"
+
+	helpBox := helpStyle.Render(helpContent)
+
+	// Combine table and help message
+	return lipgloss.JoinVertical(lipgloss.Left, m.table.View(), helpBox)
 }
 
 func truncateString(s string, maxLen int) string {
