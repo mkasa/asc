@@ -1,12 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"time"
 
 	"asc/internal/config"
 	"asc/internal/conversation"
@@ -112,6 +109,8 @@ func init() {
 	rootCmd.AddCommand(viewCmd)
 	rootCmd.AddCommand(appendCmd)
 	rootCmd.AddCommand(editCmd)
+	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(clearCmd)
 }
 
 var versionCmd = &cobra.Command{
@@ -331,48 +330,83 @@ correct a typo in a previous message.`,
 	},
 }
 
-type Conversation struct {
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Message   string    `json:"message"`
-	Response  string    `json:"response"`
+var contextCmd = &cobra.Command{
+	Use:     "context",
+	Aliases: []string{"c"},
+	Short:   "Edit the context file",
+	Long:    `Open the context file in your default editor. The context is used to provide additional information to AI.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Load existing context
+		context, err := conversation.LoadContext(logger)
+		if err != nil {
+			return err
+		}
+
+		// Create a temporary file with the context
+		tmpFile, err := os.CreateTemp("", "context-*.txt")
+		if err != nil {
+			logger.Error("Failed to create temp file", "error", err)
+			return err
+		}
+
+		if _, err := tmpFile.WriteString(context); err != nil {
+			logger.Error("Failed to write to temp file", "error", err)
+			return err
+		}
+		tmpFile.Close()
+
+		// Get editor from environment variable
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			logger.Error("EDITOR environment variable is not set")
+			return err
+		}
+
+		// Open the file in the editor
+		editCmd := exec.Command(editor, tmpFile.Name())
+		editCmd.Stdin = os.Stdin
+		editCmd.Stdout = os.Stdout
+		editCmd.Stderr = os.Stderr
+		logger.Info("Opening editor", "editor", editor, "file", tmpFile.Name())
+
+		if err := editCmd.Run(); err != nil {
+			logger.Error("Failed to open editor", "error", err)
+			return err
+		}
+
+		// Read the edited context
+		editedContext, err := os.ReadFile(tmpFile.Name())
+		if err != nil {
+			logger.Error("Failed to read edited context", "error", err)
+			return err
+		}
+
+		// Save the edited context
+		if err := conversation.SaveContext(string(editedContext), logger); err != nil {
+			logger.Error("Failed to save context", "error", err)
+			return err
+		}
+
+		// Clean up
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			logger.Error("Failed to remove temporary file", "error", err)
+		}
+
+		return nil
+	},
 }
 
-func saveNewConversation(response, message string) error {
-	// Get data directory
-	dataDir, err := config.GetDataDir()
-	if err != nil {
-		return fmt.Errorf("failed to get data directory: %w", err)
-	}
-
-	// Create conversations directory if it doesn't exist
-	conversationsDir := filepath.Join(dataDir, "conversations")
-	if err := os.MkdirAll(conversationsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create conversations directory: %w", err)
-	}
-
-	// Create new conversation
-	conversation := Conversation{
-		ID:        time.Now().Format("20060102150405"),
-		Timestamp: time.Now(),
-		Message:   message,
-		Response:  response,
-	}
-
-	// Convert to JSON
-	data, err := json.MarshalIndent(conversation, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal conversation: %w", err)
-	}
-
-	// Save to file
-	filename := filepath.Join(conversationsDir, conversation.ID+".json")
-	if err := os.WriteFile(filename, data, 0644); err != nil {
-		return fmt.Errorf("failed to save conversation: %w", err)
-	}
-
-	logger.Debug("Saved conversation", "id", conversation.ID)
-	return nil
+var clearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the context file",
+	Long:  `Remove the context file. This will clear any additional context provided to AI.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := conversation.ClearContext(logger); err != nil {
+			logger.Error("Failed to clear context", "error", err)
+			return err
+		}
+		return nil
+	},
 }
 
 func main() {

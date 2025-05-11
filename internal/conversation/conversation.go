@@ -253,3 +253,66 @@ func DeleteConversation(id string, logger *log.Logger) error {
 	logger.Debug("Deleted conversation", "id", id)
 	return nil
 }
+
+// GetContextPath returns the path to the context file
+func GetContextPath(logger *log.Logger) (string, error) {
+	shareDir, err := config.GetShareDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get share directory: %w", err)
+	}
+	return filepath.Join(shareDir, "context.txt"), nil
+}
+
+// LoadContext loads the context from the file
+func LoadContext(logger *log.Logger) (string, error) {
+	contextPath, err := GetContextPath(logger)
+	if err != nil {
+		return "", err
+	}
+
+	// Check if context file exists
+	if _, err := os.Stat(contextPath); os.IsNotExist(err) {
+		return "", nil
+	}
+
+	content, err := os.ReadFile(contextPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read context file: %w", err)
+	}
+
+	return string(content), nil
+}
+
+// SaveContext saves the context to the file
+func SaveContext(context string, logger *log.Logger) error {
+	contextPath, err := GetContextPath(logger)
+	if err != nil {
+		return err
+	}
+
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(contextPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if err := os.WriteFile(contextPath, []byte(context), 0644); err != nil {
+		return fmt.Errorf("failed to write context file: %w", err)
+	}
+
+	return nil
+}
+
+// ClearContext removes the context file
+func ClearContext(logger *log.Logger) error {
+	contextPath, err := GetContextPath(logger)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(contextPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove context file: %w", err)
+	}
+
+	return nil
+}
