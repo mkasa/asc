@@ -238,9 +238,33 @@ If no conversation ID is specified, continues with the most recent conversation.
 
 The message will be added to the existing conversation context,
 allowing AI to maintain context from previous messages.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		logger.Debug("Continuing previous conversation")
-		// TODO: Implement conversation continuation
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("message is required")
+		}
+
+		message := args[0]
+		logger.Debug("Continuing previous conversation", "message", message)
+
+		// Load conversations
+		conversations, err := conversation.LoadConversations(logger)
+		if err != nil {
+			return fmt.Errorf("failed to load conversations: %w", err)
+		}
+
+		if len(conversations) == 0 {
+			return fmt.Errorf("no conversations found")
+		}
+
+		// Get the most recent conversation
+		latest := conversations[0]
+
+		// Create a new message that includes the previous conversation
+		contextMessage := fmt.Sprintf("Previous conversation:\nUser: %s\nAI: %s\n\n# Follow-up question\n%s",
+			latest.Message, latest.Response, message)
+
+		// Start a new conversation with the context
+		return conversation.StartNewConversation(contextMessage, logger)
 	},
 }
 
