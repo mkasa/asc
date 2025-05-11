@@ -1,18 +1,21 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"asc/internal/config"
+	"asc/internal/conversation"
 
+	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
@@ -139,93 +142,136 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 		message := args[0]
 		logger.Debug("Starting new conversation", "message", message)
 
-		// Execute sgpt with --stream option
-		sgptCmd := exec.Command("sgpt", "--stream", message)
-		stdout, err := sgptCmd.StdoutPipe()
-		if err != nil {
-			logger.Error("Failed to create stdout pipe", "error", err)
-			os.Exit(1)
-		}
-		sgptCmd.Stderr = os.Stderr
-
-		if err := sgptCmd.Start(); err != nil {
-			logger.Error("Failed to start sgpt", "error", err)
-			os.Exit(1)
-		}
-
-		// Check if style file exists
-		shareDir, err := config.GetShareDir()
-		if err != nil {
-			logger.Error("Failed to get share directory", "error", err)
-			os.Exit(1)
-		}
-		stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
-		hasStyleFile := false
-		if _, err := os.Stat(stylePath); err == nil {
-			logger.Debug("Using custom style", "path", stylePath)
-			hasStyleFile = true
-		}
-
-		// Buffer for storing all output
-		var buffer strings.Builder
-		scanner := bufio.NewScanner(stdout)
-		var previousGlowOutput string
-		previousGlowOutput = ""
-
-		for {
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					if err != io.EOF {
-						logger.Error("Error reading sgpt output", "error", err)
-						os.Exit(1)
-					}
-					// Stream is closed (EOF)
-					// break
-				}
-				// No more data and no error (EOF)
-				previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
-				for i := max(0, len(previousGlowOutputLines)-2); i < len(previousGlowOutputLines); i++ {
-					fmt.Println(previousGlowOutputLines[i])
-				}
-				saveNewConversation(previousGlowOutput, message)
-				break
-			}
-			buffer.WriteString(scanner.Text() + "\n")
-
-			// Execute glow command with buffer content
-			glowCmd := exec.Command("glow")
-			glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
-
-			if hasStyleFile {
-				glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
-			}
-
-			glowCmd.Stdin = strings.NewReader(buffer.String())
-			glowCmd.Stderr = os.Stderr
-			var glowOutput strings.Builder
-			glowOutput = strings.Builder{}
-			glowCmd.Stdout = &glowOutput
-			if err := glowCmd.Run(); err != nil {
-				logger.Error("Failed to execute glow", "error", err)
-				os.Exit(1)
-			}
-			if previousGlowOutput != glowOutput.String() {
-				previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
-				glowOutputLines := strings.Split(glowOutput.String(), "\n")
-				for i := max(0, len(previousGlowOutputLines)-2); i < len(glowOutputLines)-2; i++ {
-					fmt.Println(glowOutputLines[i])
-				}
-				previousGlowOutput = glowOutput.String()
-			}
-		}
-
-		if err := sgptCmd.Wait(); err != nil {
-			logger.Error("sgpt command failed", "error", err)
-			os.Exit(1)
-		}
-
-		return nil
+		return conversation.StartNewConversation(message, logger)
 	},
+}
+
+type model struct {
+	table         table.Model
+	conversations []conversation.Conversation
+}
+
+func initialModel() model {
+	columns := []table.Column{
+		{Title: "ID", Width: 15},
+		{Title: "Date", Width: 20},
+		{Title: "Message", Width: 50},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(10),
+	)
+
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240"))
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+	t.SetStyles(s)
+
+	return model{
+		table: t,
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "q":
+			return m, tea.Quit
+		case "enter", "v":
+			if len(m.conversations) > 0 {
+				selected := m.conversations[m.table.Cursor()]
+				if err := conversation.ShowConversation(selected, logger); err != nil {
+					logger.Error("Failed to show conversation", "error", err)
+				}
+			}
+			return m, nil
+		}
+	}
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+func (m model) View() string {
+	return m.table.View()
+}
+
+func showConversation(conv Conversation) {
+	// Execute glow command with conversation content
+	glowCmd := exec.Command("glow")
+	glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+
+	// Check if style file exists
+	shareDir, err := config.GetShareDir()
+	if err != nil {
+		logger.Error("Failed to get share directory", "error", err)
+		return
+	}
+	stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
+	if _, err := os.Stat(stylePath); err == nil {
+		glowCmd.Args = append(glowCmd.Args, "--style", stylePath)
+	}
+
+	// Format conversation content
+	content := fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
+		conv.ID, conv.Message, conv.Response)
+
+	glowCmd.Stdin = strings.NewReader(content)
+	glowCmd.Stdout = os.Stdout
+	glowCmd.Stderr = os.Stderr
+	if err := glowCmd.Run(); err != nil {
+		logger.Error("Failed to execute glow", "error", err)
+	}
+}
+
+func loadConversations() ([]Conversation, error) {
+	dataDir, err := config.GetDataDir()
+	if err != nil {
+		return nil, err
+	}
+
+	conversationsDir := filepath.Join(dataDir, "conversations")
+	files, err := os.ReadDir(conversationsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var conversations []Conversation
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			data, err := os.ReadFile(filepath.Join(conversationsDir, file.Name()))
+			if err != nil {
+				logger.Error("Failed to read conversation file", "file", file.Name(), "error", err)
+				continue
+			}
+
+			var conv Conversation
+			if err := json.Unmarshal(data, &conv); err != nil {
+				logger.Error("Failed to unmarshal conversation", "file", file.Name(), "error", err)
+				continue
+			}
+			conversations = append(conversations, conv)
+		}
+	}
+
+	// Sort conversations by timestamp (newest first)
+	sort.Slice(conversations, func(i, j int) bool {
+		return conversations[i].Timestamp.After(conversations[j].Timestamp)
+	})
+
+	return conversations, nil
 }
 
 var viewCmd = &cobra.Command{
@@ -237,8 +283,46 @@ Shows a list of all conversations with their IDs, timestamps, and previews.
 You can use these IDs with other commands like 'append' and 'edit'.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		logger.Debug("Viewing conversation history")
-		// TODO: Implement conversation history view
+
+		conversations, err := conversation.LoadConversations(logger)
+		if err != nil {
+			logger.Error("Failed to load conversations", "error", err)
+			os.Exit(1)
+		}
+
+		// Sort conversations by timestamp (newest first)
+		sort.Slice(conversations, func(i, j int) bool {
+			return conversations[i].Timestamp.After(conversations[j].Timestamp)
+		})
+
+		// Create table rows
+		var rows []table.Row
+		for _, conv := range conversations {
+			rows = append(rows, table.Row{
+				conv.ID,
+				conv.Timestamp.Format("2006-01-02 15:04:05"),
+				truncateString(conv.Message, 47),
+			})
+		}
+
+		// Initialize and run the table UI
+		m := initialModel()
+		m.table.SetRows(rows)
+		m.conversations = conversations
+
+		p := tea.NewProgram(m)
+		if _, err := p.Run(); err != nil {
+			logger.Error("Failed to run table UI", "error", err)
+			os.Exit(1)
+		}
 	},
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 var appendCmd = &cobra.Command{
