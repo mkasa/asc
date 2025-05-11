@@ -18,6 +18,8 @@ type model struct {
 	table         table.Model
 	conversations []conversation.Conversation
 	logger        *log.Logger
+	showConfirm   bool
+	selectedID    string
 }
 
 func initialModel(logger *log.Logger) model {
@@ -53,7 +55,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 	// create a temporary file to save the conversation message
 	tempFile, err := os.CreateTemp("", "conversation.md")
 	if err != nil {
@@ -78,17 +80,91 @@ func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 	})
 }
 
+func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// create a temporary file to save the conversation message
+	tempFile, err := os.CreateTemp("", "conversation.md")
+	if err != nil {
+		logger.Error("Failed to create temporary file", "error", err)
+		return nil
+	}
+
+	// Format conversation content
+	content := fmt.Sprintf("# Conversation %s\n\n", selected.ID)
+	content += fmt.Sprintf("## User\n\n%s\n\n", selected.Message)
+	content += fmt.Sprintf("## AI\n\n%s\n", selected.Response)
+
+	// write the conversation content to the temporary file
+	if _, err := tempFile.WriteString(content); err != nil {
+		logger.Error("Failed to write conversation content to temporary file", "error", err)
+		return nil
+	}
+
+	c := exec.Command("less", "-SR", tempFile.Name())
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return nil
+	})
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc", "q":
+			if m.showConfirm {
+				m.showConfirm = false
+				return m, nil
+			}
 			return m, tea.Quit
 		case "enter", "v":
+			if m.showConfirm {
+				// Delete the conversation
+				if err := conversation.DeleteConversation(m.selectedID, m.logger); err != nil {
+					m.logger.Error("Failed to delete conversation", "error", err)
+					return m, nil
+				}
+				// Remove from the list
+				for i, conv := range m.conversations {
+					if conv.ID == m.selectedID {
+						m.conversations = append(m.conversations[:i], m.conversations[i+1:]...)
+						break
+					}
+				}
+				// Update table rows
+				var rows []table.Row
+				for _, conv := range m.conversations {
+					rows = append(rows, table.Row{
+						conv.ID,
+						conv.Timestamp.Format("2006-01-02 15:04:05"),
+						truncateString(conv.Message, 47),
+					})
+				}
+				m.table.SetRows(rows)
+				m.showConfirm = false
+				return m, nil
+			}
+			if len(m.conversations) > 0 {
+				selected := m.conversations[m.table.Cursor()]
+				return m, openGlow(selected, m.logger)
+			}
+			return m, nil
+		case "V":
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
 				return m, openPager(selected, m.logger)
+			}
+			return m, nil
+		case "d":
+			if !m.showConfirm && len(m.conversations) > 0 {
+				m.showConfirm = true
+				m.selectedID = m.conversations[m.table.Cursor()].ID
+				return m, nil
+			}
+			return m, nil
+		case "n":
+			if m.showConfirm {
+				m.showConfirm = false
+				return m, nil
 			}
 			return m, nil
 		}
@@ -98,6 +174,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.showConfirm {
+		style := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(1, 2)
+
+		content := fmt.Sprintf("Delete conversation %s?\n\n", m.selectedID)
+		content += "Press Enter to confirm, 'n' to cancel"
+		return style.Render(content)
+	}
 	return m.table.View()
 }
 

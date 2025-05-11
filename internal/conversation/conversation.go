@@ -181,6 +181,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 	var previousGlowOutput string
 	previousGlowOutput = ""
 
+	const HELD_OUT_LINE_COUNT = 3
 	for {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
@@ -192,7 +193,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 			}
 			// No more data and no error (EOF)
 			previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
-			for i := max(0, len(previousGlowOutputLines)-2); i < len(previousGlowOutputLines); i++ {
+			for i := max(0, len(previousGlowOutputLines)-HELD_OUT_LINE_COUNT); i < len(previousGlowOutputLines); i++ {
 				fmt.Println(previousGlowOutputLines[i])
 			}
 			if err := SaveNewConversation(buffer.String(), message, logger); err != nil {
@@ -221,7 +222,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		if previousGlowOutput != glowOutput.String() {
 			previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
 			glowOutputLines := strings.Split(glowOutput.String(), "\n")
-			for i := max(0, len(previousGlowOutputLines)-2); i < len(glowOutputLines)-2; i++ {
+			for i := max(0, len(previousGlowOutputLines)-HELD_OUT_LINE_COUNT); i < len(glowOutputLines)-HELD_OUT_LINE_COUNT; i++ {
 				fmt.Println(glowOutputLines[i])
 			}
 			previousGlowOutput = glowOutput.String()
@@ -232,5 +233,23 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		return fmt.Errorf("sgpt command failed: %w", err)
 	}
 
+	return nil
+}
+
+// DeleteConversation deletes a conversation by its ID
+func DeleteConversation(id string, logger *log.Logger) error {
+	dataDir, err := config.GetDataDir()
+	if err != nil {
+		return fmt.Errorf("failed to get data directory: %w", err)
+	}
+
+	conversationsDir := filepath.Join(dataDir, "conversations")
+	filename := filepath.Join(conversationsDir, id+".json")
+
+	if err := os.Remove(filename); err != nil {
+		return fmt.Errorf("failed to delete conversation file: %w", err)
+	}
+
+	logger.Debug("Deleted conversation", "id", id)
 	return nil
 }
