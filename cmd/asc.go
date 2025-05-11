@@ -12,6 +12,7 @@ import (
 
 	"asc/internal/config"
 	"asc/internal/conversation"
+	"asc/internal/view"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
@@ -282,37 +283,8 @@ var viewCmd = &cobra.Command{
 Shows a list of all conversations with their IDs, timestamps, and previews.
 You can use these IDs with other commands like 'append' and 'edit'.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		logger.Debug("Viewing conversation history")
-
-		conversations, err := conversation.LoadConversations(logger)
-		if err != nil {
-			logger.Error("Failed to load conversations", "error", err)
-			os.Exit(1)
-		}
-
-		// Sort conversations by timestamp (newest first)
-		sort.Slice(conversations, func(i, j int) bool {
-			return conversations[i].Timestamp.After(conversations[j].Timestamp)
-		})
-
-		// Create table rows
-		var rows []table.Row
-		for _, conv := range conversations {
-			rows = append(rows, table.Row{
-				conv.ID,
-				conv.Timestamp.Format("2006-01-02 15:04:05"),
-				truncateString(conv.Message, 47),
-			})
-		}
-
-		// Initialize and run the table UI
-		m := initialModel()
-		m.table.SetRows(rows)
-		m.conversations = conversations
-
-		p := tea.NewProgram(m)
-		if _, err := p.Run(); err != nil {
-			logger.Error("Failed to run table UI", "error", err)
+		if err := view.StartView(logger); err != nil {
+			logger.Error("Failed to start view", "error", err)
 			os.Exit(1)
 		}
 	},
