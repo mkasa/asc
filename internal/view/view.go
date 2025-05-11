@@ -1,6 +1,9 @@
 package view
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 
 	"asc/internal/conversation"
@@ -50,6 +53,31 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
+func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// create a temporary file to save the conversation message
+	tempFile, err := os.CreateTemp("", "conversation.md")
+	if err != nil {
+		logger.Error("Failed to create temporary file", "error", err)
+		return nil
+	}
+
+	// Format conversation content
+	content := fmt.Sprintf("# Conversation %s\n\n", selected.ID)
+	content += fmt.Sprintf("## User\n\n%s\n\n", selected.Message)
+	content += fmt.Sprintf("## AI\n\n%s\n", selected.Response)
+
+	// write the conversation content to the temporary file
+	if _, err := tempFile.WriteString(content); err != nil {
+		logger.Error("Failed to write conversation content to temporary file", "error", err)
+		return nil
+	}
+
+	c := exec.Command("less", "-SR", tempFile.Name())
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return nil
+	})
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
@@ -60,9 +88,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", "v":
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
-				if err := conversation.ShowConversation(selected, m.logger); err != nil {
-					m.logger.Error("Failed to show conversation", "error", err)
-				}
+				return m, openPager(selected, m.logger)
 			}
 			return m, nil
 		}
