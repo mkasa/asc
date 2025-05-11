@@ -73,7 +73,7 @@ func (m model) Init() tea.Cmd {
 
 func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWidth int) tea.Cmd {
 	// create a temporary file to save the conversation message
-	tempFile, err := os.CreateTemp("", "conversation.md")
+	tempFile, err := os.CreateTemp("", "conversation-*.md")
 	if err != nil {
 		logger.Error("Failed to create temporary file", "error", err)
 		return nil
@@ -87,6 +87,12 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 	// write the conversation content to the temporary file
 	if _, err := tempFile.WriteString(content); err != nil {
 		logger.Error("Failed to write conversation content to temporary file", "error", err)
+		return nil
+	}
+
+	// Close the file before executing glow
+	if err := tempFile.Close(); err != nil {
+		logger.Error("Failed to close temporary file", "error", err)
 		return nil
 	}
 
@@ -95,14 +101,19 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 	logger.Debug("Terminal width", "width", terminalWidth, "glow_width", glowWidth)
 
 	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", glowWidth), tempFile.Name())
+	c.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Clean up the temporary file
+		if err := os.Remove(tempFile.Name()); err != nil {
+			logger.Error("Failed to remove temporary file", "error", err)
+		}
 		return nil
 	})
 }
 
 func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 	// create a temporary file to save the conversation message
-	tempFile, err := os.CreateTemp("", "conversation.md")
+	tempFile, err := os.CreateTemp("", "conversation-*.md")
 	if err != nil {
 		logger.Error("Failed to create temporary file", "error", err)
 		return nil
@@ -119,8 +130,22 @@ func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 		return nil
 	}
 
-	c := exec.Command("less", "-SR", tempFile.Name())
+	// Close the file before executing less
+	if err := tempFile.Close(); err != nil {
+		logger.Error("Failed to close temporary file", "error", err)
+		return nil
+	}
+
+	// -S: chop long lines
+	// -R: allow ANSI color escape sequences
+	// -X: don't clear screen on exit
+	// -K: exit on Ctrl+C
+	c := exec.Command("less", "-SRXK", tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Clean up the temporary file
+		if err := os.Remove(tempFile.Name()); err != nil {
+			logger.Error("Failed to remove temporary file", "error", err)
+		}
 		return nil
 	})
 }
