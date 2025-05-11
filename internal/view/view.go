@@ -24,6 +24,10 @@ type model struct {
 	terminalWidth int
 }
 
+type editCompleteMsg struct {
+	message string
+}
+
 func initialModel(logger *log.Logger, terminalWidth int) model {
 	columns := []table.Column{
 		{Title: "ID", Width: 15},
@@ -112,6 +116,52 @@ func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 	})
 }
 
+func editConversation(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// Create a temporary file with the message
+	tmpFile, err := os.CreateTemp("", "edit-*.txt")
+	if err != nil {
+		logger.Error("Failed to create temp file", "error", err)
+		return nil
+	}
+
+	if _, err := tmpFile.WriteString(selected.Message); err != nil {
+		logger.Error("Failed to write to temp file", "error", err)
+		return nil
+	}
+	tmpFile.Close()
+
+	// Get editor from environment variable
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		logger.Error("EDITOR environment variable is not set")
+		return nil
+	}
+
+	// Open the file in the editor
+	editCmd := exec.Command(editor, tmpFile.Name())
+	editCmd.Stdin = os.Stdin
+	editCmd.Stdout = os.Stdout
+	editCmd.Stderr = os.Stderr
+	logger.Info("Opening editor", "editor", editor, "file", tmpFile.Name())
+
+	return tea.ExecProcess(editCmd, func(err error) tea.Msg {
+		defer os.Remove(tmpFile.Name())
+		if err != nil {
+			logger.Error("Failed to open editor", "error", err)
+			return err
+		}
+		// Read the edited message
+		editedMessageByte, err := os.ReadFile(tmpFile.Name())
+		if err != nil {
+			logger.Error("Failed to read edited message", "error", err)
+			return err
+		}
+		editedMessageString := string(editedMessageByte)
+		logger.Info("Edited message", "message", editedMessageString)
+		return editCompleteMsg{message: editedMessageString}
+	})
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
@@ -181,6 +231,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+	case editCompleteMsg:
+		// Start new conversation with edited message
+		return m, tea.ExecProcess(exec.Command("asc", "new", msg.message), func(err error) tea.Msg {
+			if err != nil {
+				m.logger.Error("Failed to execute asc new", "error", err)
+			}
+			return tea.Quit
+		})
 	}
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
@@ -205,61 +263,6 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
-}
-
-func editConversation(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
-	// Create a temporary file with the message
-	tmpFile, err := os.CreateTemp("", "edit-*.txt")
-	if err != nil {
-		logger.Error("Failed to create temp file", "error", err)
-		return nil
-	}
-
-	if _, err := tmpFile.WriteString(selected.Message); err != nil {
-		logger.Error("Failed to write to temp file", "error", err)
-		return nil
-	}
-	tmpFile.Close()
-
-	// Get editor from environment variable
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		logger.Error("EDITOR environment variable is not set")
-		return nil
-	}
-
-	// Open the file in the editor
-	editCmd := exec.Command(editor, tmpFile.Name())
-	editCmd.Stdin = os.Stdin
-	editCmd.Stdout = os.Stdout
-	editCmd.Stderr = os.Stderr
-	logger.Info("Opening editor", "editor", editor, "file", tmpFile.Name())
-
-	emptyMessage := "hello, world!"
-	editedMessageNext := &emptyMessage
-	// エディタを開いた後に新しい会話を開始する
-	return tea.Sequence(
-		tea.ExecProcess(editCmd, func(err error) tea.Msg {
-			defer os.Remove(tmpFile.Name())
-			if err != nil {
-				logger.Error("Failed to open editor", "error", err)
-				return err
-			}
-			// Read the edited message
-			editedMessageByte, err := os.ReadFile(tmpFile.Name())
-			if err != nil {
-				logger.Error("Failed to read edited message", "error", err)
-				return err
-			}
-			editedMessageString := string(editedMessageByte)
-			logger.Info("Edited message", "message", editedMessageString)
-			editedMessageNext = &editedMessageString
-			return nil
-		}),
-		tea.ExecProcess(exec.Command("asc", "new", *editedMessageNext), func(err error) tea.Msg {
-			return tea.Quit
-		}),
-	)
 }
 
 func StartView(logger *log.Logger) error {
