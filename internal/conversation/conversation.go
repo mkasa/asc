@@ -22,9 +22,10 @@ type Conversation struct {
 	Message   string    `json:"message"`
 	Response  string    `json:"response"`
 	FilePath  string    `json:"file_path"`
+	Context   string    `json:"context,omitempty"`
 }
 
-func SaveNewConversation(response, message string, logger *log.Logger) error {
+func SaveNewConversation(response, message, context string, logger *log.Logger) error {
 	// Get data directory
 	dataDir, err := config.GetDataDir()
 	if err != nil {
@@ -43,6 +44,7 @@ func SaveNewConversation(response, message string, logger *log.Logger) error {
 		Timestamp: time.Now(),
 		Message:   message,
 		Response:  response,
+		Context:   context,
 	}
 
 	// Convert to JSON
@@ -151,8 +153,23 @@ func ShowConversation(conv Conversation, logger *log.Logger) error {
 }
 
 func StartNewConversation(message string, logger *log.Logger) error {
+	// Load context if exists
+	context, err := LoadContext(logger)
+	if err != nil {
+		logger.Error("Failed to load context", "error", err)
+		return err
+	}
+
+	// Prepend context to message if it exists
+	var fullMessage string
+	if context != "" {
+		fullMessage = fmt.Sprintf("# Context\n%s\n\n# Question\n%s", context, message)
+	} else {
+		fullMessage = message
+	}
+
 	// Execute sgpt with --stream option
-	sgptCmd := exec.Command("sgpt", "--stream", message)
+	sgptCmd := exec.Command("sgpt", "--stream", fullMessage)
 	stdout, err := sgptCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -196,7 +213,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 			for i := max(0, len(previousGlowOutputLines)-HELD_OUT_LINE_COUNT); i < len(previousGlowOutputLines); i++ {
 				fmt.Println(previousGlowOutputLines[i])
 			}
-			if err := SaveNewConversation(buffer.String(), message, logger); err != nil {
+			if err := SaveNewConversation(buffer.String(), message, context, logger); err != nil {
 				return fmt.Errorf("failed to save conversation: %w", err)
 			}
 			break

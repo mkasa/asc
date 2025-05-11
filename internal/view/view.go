@@ -71,37 +71,32 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWidth int) tea.Cmd {
-	// create a temporary file to save the conversation message
+func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// Create a temporary file to save the conversation message
 	tempFile, err := os.CreateTemp("", "conversation-*.md")
 	if err != nil {
-		logger.Error("Failed to create temporary file", "error", err)
+		logger.Error("Failed to create temp file", "error", err)
 		return nil
 	}
 
-	// Format conversation content
-	content := fmt.Sprintf("# Conversation %s\n\n", selected.ID)
-	content += fmt.Sprintf("## User\n\n%s\n\n", selected.Message)
-	content += fmt.Sprintf("## AI\n\n%s\n", selected.Response)
+	// Format the content with context if it exists
+	var content string
+	if selected.Context != "" {
+		content = fmt.Sprintf("# Conversation %s\n\n## Context\n%s\n\n## User\n%s\n\n## AI\n%s",
+			selected.ID, selected.Context, selected.Message, selected.Response)
+	} else {
+		content = fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
+			selected.ID, selected.Message, selected.Response)
+	}
 
-	// write the conversation content to the temporary file
 	if _, err := tempFile.WriteString(content); err != nil {
-		logger.Error("Failed to write conversation content to temporary file", "error", err)
+		logger.Error("Failed to write to temp file", "error", err)
 		return nil
 	}
+	tempFile.Close()
 
-	// Close the file before executing glow
-	if err := tempFile.Close(); err != nil {
-		logger.Error("Failed to close temporary file", "error", err)
-		return nil
-	}
-
-	// Set glow width to terminal width minus 2
-	glowWidth := terminalWidth - 2
-	logger.Debug("Terminal width", "width", terminalWidth, "glow_width", glowWidth)
-
-	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", glowWidth), tempFile.Name())
-	c.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+	// Execute glow command
+	c := exec.Command("glow", "-p", tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Clean up the temporary file
 		if err := os.Remove(tempFile.Name()); err != nil {
@@ -112,35 +107,31 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 }
 
 func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
-	// create a temporary file to save the conversation message
+	// Create a temporary file to save the conversation message
 	tempFile, err := os.CreateTemp("", "conversation-*.md")
 	if err != nil {
-		logger.Error("Failed to create temporary file", "error", err)
+		logger.Error("Failed to create temp file", "error", err)
 		return nil
 	}
 
-	// Format conversation content
-	content := fmt.Sprintf("# Conversation %s\n\n", selected.ID)
-	content += fmt.Sprintf("## User\n\n%s\n\n", selected.Message)
-	content += fmt.Sprintf("## AI\n\n%s\n", selected.Response)
+	// Format the content with context if it exists
+	var content string
+	if selected.Context != "" {
+		content = fmt.Sprintf("# Conversation %s\n\n## Context\n%s\n\n## User\n%s\n\n## AI\n%s",
+			selected.ID, selected.Context, selected.Message, selected.Response)
+	} else {
+		content = fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
+			selected.ID, selected.Message, selected.Response)
+	}
 
-	// write the conversation content to the temporary file
 	if _, err := tempFile.WriteString(content); err != nil {
-		logger.Error("Failed to write conversation content to temporary file", "error", err)
+		logger.Error("Failed to write to temp file", "error", err)
 		return nil
 	}
+	tempFile.Close()
 
-	// Close the file before executing less
-	if err := tempFile.Close(); err != nil {
-		logger.Error("Failed to close temporary file", "error", err)
-		return nil
-	}
-
-	// -S: chop long lines
-	// -R: allow ANSI color escape sequences
-	// -X: don't clear screen on exit
-	// -K: exit on Ctrl+C
-	c := exec.Command("less", "-SRXK", tempFile.Name())
+	// Execute less command
+	c := exec.Command("less", "-SR", tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Clean up the temporary file
 		if err := os.Remove(tempFile.Name()); err != nil {
@@ -236,7 +227,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
-				return m, openGlow(selected, m.logger, m.terminalWidth)
+				return m, openGlow(selected, m.logger)
 			}
 			return m, nil
 		case "V":

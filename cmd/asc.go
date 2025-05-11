@@ -24,6 +24,9 @@ var (
 	// Version information
 	version = "dev"
 
+	// Logger
+	logger *log.Logger
+
 	// Root command
 	rootCmd = &cobra.Command{
 		Use:   "asc",
@@ -94,8 +97,6 @@ Examples:
 			logger.Debug("Starting AI conversation")
 		},
 	}
-
-	logger *log.Logger
 )
 
 func init() {
@@ -208,7 +209,7 @@ func (m model) View() string {
 
 var viewCmd = &cobra.Command{
 	Use:     "view",
-	Aliases: []string{"v"},
+	Aliases: []string{"v", "V"},
 	Short:   "View conversation history",
 	Long: `Display the history of your conversations with AI.
 Shows a list of all conversations with their IDs, timestamps, and previews.
@@ -410,6 +411,13 @@ var clearCmd = &cobra.Command{
 }
 
 func main() {
+	// Initialize logger with default options
+	logger = log.NewWithOptions(os.Stderr, log.Options{
+		ReportCaller:    true,
+		ReportTimestamp: true,
+		Level:           log.InfoLevel,
+	})
+
 	if err := rootCmd.Execute(); err != nil {
 		logger.Error("An error occurred", "error", err)
 		os.Exit(1)
