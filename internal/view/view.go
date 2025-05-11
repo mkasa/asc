@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
+	"golang.org/x/term"
 )
 
 type model struct {
@@ -20,9 +21,10 @@ type model struct {
 	logger        *log.Logger
 	showConfirm   bool
 	selectedID    string
+	terminalWidth int
 }
 
-func initialModel(logger *log.Logger) model {
+func initialModel(logger *log.Logger, terminalWidth int) model {
 	columns := []table.Column{
 		{Title: "ID", Width: 15},
 		{Title: "Date", Width: 20},
@@ -46,8 +48,9 @@ func initialModel(logger *log.Logger) model {
 	t.SetStyles(s)
 
 	return model{
-		table:  t,
-		logger: logger,
+		table:         t,
+		logger:        logger,
+		terminalWidth: terminalWidth,
 	}
 }
 
@@ -55,7 +58,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWidth int) tea.Cmd {
 	// create a temporary file to save the conversation message
 	tempFile, err := os.CreateTemp("", "conversation.md")
 	if err != nil {
@@ -74,7 +77,11 @@ func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 		return nil
 	}
 
-	c := exec.Command("glow", "-p", tempFile.Name())
+	// Set glow width to terminal width minus 2
+	glowWidth := terminalWidth - 2
+	logger.Debug("Terminal width", "width", terminalWidth, "glow_width", glowWidth)
+
+	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", glowWidth), tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return nil
 	})
@@ -145,7 +152,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
-				return m, openGlow(selected, m.logger)
+				return m, openGlow(selected, m.logger, m.terminalWidth)
 			}
 			return m, nil
 		case "V":
@@ -197,6 +204,13 @@ func truncateString(s string, maxLen int) string {
 func StartView(logger *log.Logger) error {
 	logger.Debug("Viewing conversation history")
 
+	// Get terminal width using term.GetSize
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return fmt.Errorf("failed to get terminal width: %w", err)
+	}
+	logger.Debug("Terminal width", "width", width, "source", "term.GetSize")
+
 	conversations, err := conversation.LoadConversations(logger)
 	if err != nil {
 		return err
@@ -218,7 +232,7 @@ func StartView(logger *log.Logger) error {
 	}
 
 	// Initialize and run the table UI
-	m := initialModel(logger)
+	m := initialModel(logger, width)
 	m.table.SetRows(rows)
 	m.conversations = conversations
 
