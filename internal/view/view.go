@@ -39,7 +39,7 @@ func initialModel(logger *log.Logger, terminalWidth int) model {
 
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("240"))
 	s.Selected = s.Selected.
 		Foreground(lipgloss.Color("229")).
@@ -161,6 +161,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, openPager(selected, m.logger)
 			}
 			return m, nil
+		case "e":
+			if len(m.conversations) > 0 {
+				selected := m.conversations[m.table.Cursor()]
+				return m, editConversation(selected, m.logger)
+			}
+			return m, nil
 		case "d":
 			if !m.showConfirm && len(m.conversations) > 0 {
 				m.showConfirm = true
@@ -199,6 +205,61 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+func editConversation(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// Create a temporary file with the message
+	tmpFile, err := os.CreateTemp("", "edit-*.txt")
+	if err != nil {
+		logger.Error("Failed to create temp file", "error", err)
+		return nil
+	}
+
+	if _, err := tmpFile.WriteString(selected.Message); err != nil {
+		logger.Error("Failed to write to temp file", "error", err)
+		return nil
+	}
+	tmpFile.Close()
+
+	// Get editor from environment variable
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		logger.Error("EDITOR environment variable is not set")
+		return nil
+	}
+
+	// Open the file in the editor
+	editCmd := exec.Command(editor, tmpFile.Name())
+	editCmd.Stdin = os.Stdin
+	editCmd.Stdout = os.Stdout
+	editCmd.Stderr = os.Stderr
+	logger.Info("Opening editor", "editor", editor, "file", tmpFile.Name())
+
+	emptyMessage := "hello, world!"
+	editedMessageNext := &emptyMessage
+	// エディタを開いた後に新しい会話を開始する
+	return tea.Sequence(
+		tea.ExecProcess(editCmd, func(err error) tea.Msg {
+			defer os.Remove(tmpFile.Name())
+			if err != nil {
+				logger.Error("Failed to open editor", "error", err)
+				return err
+			}
+			// Read the edited message
+			editedMessageByte, err := os.ReadFile(tmpFile.Name())
+			if err != nil {
+				logger.Error("Failed to read edited message", "error", err)
+				return err
+			}
+			editedMessageString := string(editedMessageByte)
+			logger.Info("Edited message", "message", editedMessageString)
+			editedMessageNext = &editedMessageString
+			return nil
+		}),
+		tea.ExecProcess(exec.Command("asc", "new", *editedMessageNext), func(err error) tea.Msg {
+			return tea.Quit
+		}),
+	)
 }
 
 func StartView(logger *log.Logger) error {
