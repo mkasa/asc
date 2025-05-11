@@ -253,9 +253,57 @@ If no message ID is specified, edits the most recent message.
 
 This is useful when you want to rephrase a question or
 correct a typo in a previous message.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger.Debug("Editing previous message")
-		// TODO: Implement message editing
+
+		// Load conversations
+		conversations, err := conversation.LoadConversations(logger)
+		if err != nil {
+			return fmt.Errorf("failed to load conversations: %w", err)
+		}
+
+		if len(conversations) == 0 {
+			return fmt.Errorf("no conversations found")
+		}
+
+		// Get the most recent conversation
+		latest := conversations[0]
+
+		// Create a temporary file with the message
+		tmpFile, err := os.CreateTemp("", "edit-*.txt")
+		if err != nil {
+			return fmt.Errorf("failed to create temp file: %w", err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.WriteString(latest.Message); err != nil {
+			return fmt.Errorf("failed to write to temp file: %w", err)
+		}
+		tmpFile.Close()
+
+		// Get editor from environment variable
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			return fmt.Errorf("EDITOR environment variable is not set")
+		}
+
+		// Open the file in the editor
+		editCmd := exec.Command(editor, tmpFile.Name())
+		editCmd.Stdin = os.Stdin
+		editCmd.Stdout = os.Stdout
+		editCmd.Stderr = os.Stderr
+		if err := editCmd.Run(); err != nil {
+			return fmt.Errorf("failed to open editor: %w", err)
+		}
+
+		// Read the edited message
+		editedMessage, err := os.ReadFile(tmpFile.Name())
+		if err != nil {
+			return fmt.Errorf("failed to read edited message: %w", err)
+		}
+
+		// Start a new conversation with the edited message
+		return conversation.StartNewConversation(string(editedMessage), logger)
 	},
 }
 
