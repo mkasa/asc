@@ -95,8 +95,7 @@ func LoadConversations(logger *log.Logger) ([]Conversation, error) {
 
 func ShowConversation(conv Conversation, logger *log.Logger) error {
 	// Execute glow command with conversation content
-	glowCmd := exec.Command("glow")
-	glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
+	glowCmd := exec.Command("glow", "-p")
 
 	// Check if style file exists
 	shareDir, err := config.GetShareDir()
