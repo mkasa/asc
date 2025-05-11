@@ -29,10 +29,19 @@ type editCompleteMsg struct {
 }
 
 func initialModel(logger *log.Logger, terminalWidth int) model {
+	// Calculate column widths based on terminal width
+	// Account for borders (2 chars) and padding (2 chars) = 4 chars total
+	availableWidth := terminalWidth - 4
+
+	// Fixed widths for ID and Date columns
+	idWidth := 16
+	dateWidth := 20
+	messageWidth := availableWidth - idWidth - dateWidth
+
 	columns := []table.Column{
-		{Title: "ID", Width: 15},
-		{Title: "Date", Width: 20},
-		{Title: "Message", Width: 50},
+		{Title: "ID", Width: idWidth},
+		{Title: "Date", Width: dateWidth},
+		{Title: "Message", Width: messageWidth},
 	}
 
 	t := table.New(
@@ -193,7 +202,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rows = append(rows, table.Row{
 						conv.ID,
 						conv.Timestamp.Format("2006-01-02 15:04:05"),
-						truncateString(conv.Message, 47),
+						truncateString(conv.Message, int(float64(m.terminalWidth-4)*0.65)),
 					})
 				}
 				m.table.SetRows(rows)
@@ -291,7 +300,7 @@ func StartView(logger *log.Logger) error {
 		rows = append(rows, table.Row{
 			conv.ID,
 			conv.Timestamp.Format("2006-01-02 15:04:05"),
-			truncateString(conv.Message, 47),
+			truncateString(conv.Message, width-42), // 42 = 16 (ID) + 20 (Date) + 4 (borders) + 2 (padding)
 		})
 	}
 
