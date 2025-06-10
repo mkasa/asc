@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 
+	"asc/internal/config"
 	"asc/internal/conversation"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -71,7 +73,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWidth int) tea.Cmd {
 	// Create a temporary file to save the conversation message
 	tempFile, err := os.CreateTemp("", "conversation-*.md")
 	if err != nil {
@@ -95,8 +97,17 @@ func openGlow(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 	}
 	tempFile.Close()
 
-	// Execute glow command
-	c := exec.Command("glow", "-p", tempFile.Name())
+	// Execute glow command with terminal width
+	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth), tempFile.Name())
+	
+	// Check if style file exists and add it if available
+	shareDir, err := config.GetShareDir()
+	if err == nil {
+		stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
+		if _, err := os.Stat(stylePath); err == nil {
+			c.Args = append(c.Args, "--style", stylePath)
+		}
+	}
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Clean up the temporary file
 		if err := os.Remove(tempFile.Name()); err != nil {
@@ -227,7 +238,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
-				return m, openGlow(selected, m.logger)
+				return m, openGlow(selected, m.logger, m.terminalWidth)
 			}
 			return m, nil
 		case "V":

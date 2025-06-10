@@ -213,7 +213,11 @@ func StartNewConversation(message string, logger *log.Logger) error {
 			for i := max(0, len(previousGlowOutputLines)-HELD_OUT_LINE_COUNT); i < len(previousGlowOutputLines); i++ {
 				fmt.Println(previousGlowOutputLines[i])
 			}
-			if err := SaveNewConversation(buffer.String(), message, context, logger); err != nil {
+			// Trim excessive trailing newlines before saving
+			response := strings.TrimRightFunc(buffer.String(), func(r rune) bool {
+				return r == '\n' || r == '\r'
+			})
+			if err := SaveNewConversation(response, message, context, logger); err != nil {
 				return fmt.Errorf("failed to save conversation: %w", err)
 			}
 			break
