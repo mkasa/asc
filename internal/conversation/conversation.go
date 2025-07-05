@@ -14,6 +14,7 @@ import (
 	"asc/internal/config"
 
 	"github.com/charmbracelet/log"
+	"golang.org/x/term"
 )
 
 type Conversation struct {
@@ -125,9 +126,21 @@ func LoadConversations(logger *log.Logger) ([]Conversation, error) {
 	return conversations, nil
 }
 
+// getTerminalWidth returns the terminal width, defaulting to 80 if unable to determine
+func getTerminalWidth() int {
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return 80 // default width if unable to get terminal size
+	}
+	return width
+}
+
 func ShowConversation(conv Conversation, logger *log.Logger) error {
+	// Get terminal width
+	terminalWidth := getTerminalWidth()
+	
 	// Execute glow command with conversation content
-	glowCmd := exec.Command("glow", "-p")
+	glowCmd := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth-2))
 
 	// Check if style file exists
 	shareDir, err := config.GetShareDir()
@@ -225,7 +238,8 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		buffer.WriteString(scanner.Text() + "\n")
 
 		// Execute glow command with buffer content
-		glowCmd := exec.Command("glow")
+		terminalWidth := getTerminalWidth()
+		glowCmd := exec.Command("glow", "-w", fmt.Sprintf("%d", terminalWidth-2))
 		glowCmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1")
 
 		if hasStyleFile {

@@ -98,7 +98,7 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 	tempFile.Close()
 
 	// Execute glow command with terminal width
-	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth), tempFile.Name())
+	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth-2), tempFile.Name())
 	
 	// Check if style file exists and add it if available
 	shareDir, err := config.GetShareDir()
