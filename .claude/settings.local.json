@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(make:*)",
-      "Bash(go mod:*)"
+      "Bash(go mod:*)",
+      "Bash(asc:*)",
+      "Bash(./asc v)"
     ]
   },
   "enableAllProjectMcpServers": false
