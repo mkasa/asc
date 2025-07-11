@@ -211,7 +211,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 	var previousGlowOutput string
 	previousGlowOutput = ""
 
-	const HELD_OUT_LINE_COUNT = 3
+	const HELD_OUT_LINE_COUNT = 4
 	for {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
