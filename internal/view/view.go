@@ -30,15 +30,23 @@ type editCompleteMsg struct {
 	message string
 }
 
-func initialModel(logger *log.Logger, terminalWidth int) model {
-	// Calculate column widths based on terminal width
-	// Account for borders (2 chars) and padding (2 chars) = 4 chars total
-	availableWidth := terminalWidth - 4
-
+// calculateColumnWidths returns the column widths for ID, Date, and Message columns
+func calculateColumnWidths(terminalWidth int) (idWidth, dateWidth, messageWidth int) {
+	// Account for borders and table internal spacing
+	// Each column seems to have additional padding in the table component
+	availableWidth := terminalWidth - 8  // Increased from 4 to account for table padding
+	
 	// Fixed widths for ID and Date columns
-	idWidth := 16
-	dateWidth := 20
-	messageWidth := availableWidth - idWidth - dateWidth
+	idWidth = 14  // Full ID: 20250706023320
+	dateWidth = 19 // Full date: 2025-07-06 02:33:20
+	messageWidth = availableWidth - idWidth - dateWidth
+	
+	return idWidth, dateWidth, messageWidth
+}
+
+func initialModel(logger *log.Logger, terminalWidth int) model {
+	// Calculate column widths
+	idWidth, dateWidth, messageWidth := calculateColumnWidths(terminalWidth)
 
 	columns := []table.Column{
 		{Title: "ID", Width: idWidth},
@@ -223,13 +231,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				// Update table rows
+				// Update table rows with consistent width calculations
+				idWidth, dateWidth, messageWidth := calculateColumnWidths(m.terminalWidth)
+				
 				var rows []table.Row
 				for _, conv := range m.conversations {
 					rows = append(rows, table.Row{
-						conv.ID,
-						conv.Timestamp.Format("2006-01-02 15:04:05"),
-						truncateString(conv.Message, int(float64(m.terminalWidth-4)*0.65)),
+						truncateString(conv.ID, idWidth),
+						truncateString(conv.Timestamp.Format("2006-01-02 15:04:05"), dateWidth),
+						truncateString(conv.Message, messageWidth),
 					})
 				}
 				m.table.SetRows(rows)
@@ -321,12 +331,15 @@ func truncateString(s string, maxLen int) string {
 func StartView(logger *log.Logger) error {
 	logger.Debug("Viewing conversation history")
 
-	// Get terminal width using term.GetSize
+	// Get terminal width using term.GetSize with fallback
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
-		return fmt.Errorf("failed to get terminal width: %w", err)
+		// Fallback to default width if terminal size detection fails
+		width = 80
+		logger.Debug("Failed to get terminal width, using default", "width", width, "error", err)
+	} else {
+		logger.Debug("Terminal width", "width", width, "source", "term.GetSize")
 	}
-	logger.Debug("Terminal width", "width", width, "source", "term.GetSize")
 
 	conversations, err := conversation.LoadConversations(logger)
 	if err != nil {
@@ -338,13 +351,15 @@ func StartView(logger *log.Logger) error {
 		return conversations[i].Timestamp.After(conversations[j].Timestamp)
 	})
 
-	// Create table rows
+	// Create table rows with consistent width calculations
+	idWidth, dateWidth, messageWidth := calculateColumnWidths(width)
+	
 	var rows []table.Row
 	for _, conv := range conversations {
 		rows = append(rows, table.Row{
-			conv.ID,
-			conv.Timestamp.Format("2006-01-02 15:04:05"),
-			truncateString(conv.Message, width-42), // 42 = 16 (ID) + 20 (Date) + 4 (borders) + 2 (padding)
+			truncateString(conv.ID, idWidth),
+			truncateString(conv.Timestamp.Format("2006-01-02 15:04:05"), dateWidth),
+			truncateString(conv.Message, messageWidth),
 		})
 	}
 
