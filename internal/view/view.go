@@ -49,12 +49,12 @@ func initialModel(logger *log.Logger, terminalWidth int) model {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(10),
+		table.WithHeight(15),
 	)
 
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.ASCIIBorder()).
 		BorderForeground(lipgloss.Color("240"))
 	s.Selected = s.Selected.
 		Foreground(lipgloss.Color("229")).
