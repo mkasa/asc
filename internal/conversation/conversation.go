@@ -184,7 +184,7 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 	// Execute AI command based on provider
 	var aiCmd *exec.Cmd
 	if usePerplexity {
-		aiCmd = exec.Command("perplexity", "--stream", "--citation", fullMessage)
+		aiCmd = exec.Command("perplexity", "-g", "--stream", "--citation", fullMessage)
 	} else {
 		aiCmd = exec.Command("sgpt", "--stream", fullMessage)
 	}
