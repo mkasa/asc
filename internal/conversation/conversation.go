@@ -165,7 +165,7 @@ func ShowConversation(conv Conversation, logger *log.Logger) error {
 	return nil
 }
 
-func StartNewConversation(message string, logger *log.Logger) error {
+func StartNewConversation(message string, usePerplexity bool, logger *log.Logger) error {
 	// Load context if exists
 	context, err := LoadContext(logger)
 	if err != nil {
@@ -173,24 +173,29 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		return err
 	}
 
-	// Prepend context to message if it exists
+	// Prepend context to message if it exists (only for sgpt)
 	var fullMessage string
-	if context != "" {
+	if !usePerplexity && context != "" {
 		fullMessage = fmt.Sprintf("# Context\n%s\n\n# Question\n%s", context, message)
 	} else {
 		fullMessage = message
 	}
 
-	// Execute sgpt with --stream option
-	sgptCmd := exec.Command("sgpt", "--stream", fullMessage)
-	stdout, err := sgptCmd.StdoutPipe()
+	// Execute AI command based on provider
+	var aiCmd *exec.Cmd
+	if usePerplexity {
+		aiCmd = exec.Command("perplexity", "--stream", "--citation", fullMessage)
+	} else {
+		aiCmd = exec.Command("sgpt", "--stream", fullMessage)
+	}
+	stdout, err := aiCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	sgptCmd.Stderr = os.Stderr
+	aiCmd.Stderr = os.Stderr
 
-	if err := sgptCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start sgpt: %w", err)
+	if err := aiCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start AI command: %w", err)
 	}
 
 	// Check if style file exists
@@ -216,7 +221,7 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				if err != io.EOF {
-					return fmt.Errorf("error reading sgpt output: %w", err)
+					return fmt.Errorf("error reading AI output: %w", err)
 				}
 				// Stream is closed (EOF)
 				// break
@@ -264,8 +269,8 @@ func StartNewConversation(message string, logger *log.Logger) error {
 		}
 	}
 
-	if err := sgptCmd.Wait(); err != nil {
-		return fmt.Errorf("sgpt command failed: %w", err)
+	if err := aiCmd.Wait(); err != nil {
+		return fmt.Errorf("AI command failed: %w", err)
 	}
 
 	return nil

@@ -18,8 +18,9 @@ import (
 
 var (
 	// Global flags
-	verbose bool
-	debug   bool
+	verbose       bool
+	debug         bool
+	usePerplexity bool
 
 	// Version information
 	version = "dev"
@@ -80,9 +81,13 @@ Examples:
 					os.Exit(1)
 				}
 
-				// Check sgpt command
-				if _, err := exec.LookPath("sgpt"); err != nil {
-					logger.Error("Required command not found", "command", "sgpt", "error", err)
+				// Check AI provider command
+				aiCommand := "sgpt"
+				if usePerplexity {
+					aiCommand = "perplexity"
+				}
+				if _, err := exec.LookPath(aiCommand); err != nil {
+					logger.Error("Required command not found", "command", aiCommand, "error", err)
 					os.Exit(1)
 				}
 
@@ -112,6 +117,11 @@ func init() {
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(clearCmd)
+
+	// Add perplexity flag to commands that interact with AI
+	newCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
+	appendCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
+	editCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 }
 
 var versionCmd = &cobra.Command{
@@ -141,7 +151,7 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 		message := args[0]
 		logger.Debug("Starting new conversation", "message", message)
 
-		return conversation.StartNewConversation(message, logger)
+		return conversation.StartNewConversation(message, usePerplexity, logger)
 	},
 }
 
@@ -264,7 +274,7 @@ allowing AI to maintain context from previous messages.`,
 			latest.Message, latest.Response, message)
 
 		// Start a new conversation with the context
-		return conversation.StartNewConversation(contextMessage, logger)
+		return conversation.StartNewConversation(contextMessage, usePerplexity, logger)
 	},
 }
 
@@ -327,7 +337,7 @@ correct a typo in a previous message.`,
 		}
 
 		// Start a new conversation with the edited message
-		return conversation.StartNewConversation(string(editedMessage), logger)
+		return conversation.StartNewConversation(string(editedMessage), usePerplexity, logger)
 	},
 }
 
