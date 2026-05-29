@@ -47,6 +47,10 @@ Examples:
   asc new "What's the weather like?"
   asc n "Tell me about Go"
 
+  # Start an interactive multi-round chat
+  asc interactive "Let's discuss Go concurrency"
+  asc i            # resume the most recent conversation
+
   # Continue a previous conversation
   asc append "Can you explain more about that?"
   asc a "What else should I know?"
@@ -112,6 +116,7 @@ func init() {
 	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(newCmd)
+	rootCmd.AddCommand(interactiveCmd)
 	rootCmd.AddCommand(viewCmd)
 	rootCmd.AddCommand(appendCmd)
 	rootCmd.AddCommand(editCmd)
@@ -120,6 +125,7 @@ func init() {
 
 	// Add perplexity flag to commands that interact with AI
 	newCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
+	interactiveCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 	appendCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 	editCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 }
@@ -137,11 +143,10 @@ var newCmd = &cobra.Command{
 	Use:     "new [message]",
 	Aliases: []string{"n"},
 	Short:   "Start a new conversation with AI",
-	Long: `Start a new interactive conversation session with AI.
+	Long: `Start a new conversation with AI by sending a single message.
 The conversation will be saved in your data directory for future reference.
 
-If a message is provided, it will be sent as the first message to AI.
-Otherwise, you'll enter an interactive mode where you can type messages.`,
+A message is required. For a multi-round, back-and-forth chat, use 'asc interactive'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			logger.Error("Message is required")
@@ -152,6 +157,33 @@ Otherwise, you'll enter an interactive mode where you can type messages.`,
 		logger.Debug("Starting new conversation", "message", message)
 
 		return conversation.StartNewConversation(message, usePerplexity, logger)
+	},
+}
+
+var interactiveCmd = &cobra.Command{
+	Use:     "interactive [message]",
+	Aliases: []string{"i"},
+	Short:   "Start or resume an interactive multi-round chat",
+	Long: `Start an interactive, multi-round conversation with AI.
+
+You'll be prompted for a message, the reply is streamed, and then you're
+prompted again — repeating for as many rounds as you like. Each turn re-sends
+the accumulated transcript so the AI keeps context.
+
+If a message is provided, a new conversation is started with it as the first
+message. If no message is provided, the most recent conversation is resumed and
+continued.
+
+Type /exit or /quit (or press Ctrl-D) to end the session. The conversation is
+saved after every turn.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		initial := ""
+		if len(args) > 0 {
+			initial = args[0]
+		}
+		logger.Debug("Starting interactive conversation", "initial", initial)
+
+		return conversation.RunInteractive(initial, usePerplexity, logger)
 	},
 }
 
@@ -256,22 +288,22 @@ allowing AI to maintain context from previous messages.`,
 		message := args[0]
 		logger.Debug("Continuing previous conversation", "message", message)
 
-		// Load conversations
-		conversations, err := conversation.LoadConversations(logger)
+		// Get the most recent conversation
+		latest, ok, err := conversation.LatestConversation(logger)
 		if err != nil {
 			return fmt.Errorf("failed to load conversations: %w", err)
 		}
-
-		if len(conversations) == 0 {
+		if !ok {
 			return fmt.Errorf("no conversations found")
 		}
 
-		// Get the most recent conversation
-		latest := conversations[0]
-
-		// Create a new message that includes the previous conversation
-		contextMessage := fmt.Sprintf("Previous conversation:\nUser: %s\nAI: %s\n\n# Follow-up question\n%s",
-			latest.Message, latest.Response, message)
+		// Build the follow-up message, including the full prior transcript when the
+		// conversation has multiple turns (falls back to the single Q/A pair otherwise).
+		prior := latest.Turns
+		if len(prior) == 0 {
+			prior = []conversation.Turn{{Question: latest.Message, Answer: latest.Response}}
+		}
+		contextMessage := conversation.BuildTranscriptInput(prior, message)
 
 		// Start a new conversation with the context
 		return conversation.StartNewConversation(contextMessage, usePerplexity, logger)
@@ -290,18 +322,14 @@ correct a typo in a previous message.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logger.Debug("Editing previous message")
 
-		// Load conversations
-		conversations, err := conversation.LoadConversations(logger)
+		// Get the most recent conversation
+		latest, ok, err := conversation.LatestConversation(logger)
 		if err != nil {
 			return fmt.Errorf("failed to load conversations: %w", err)
 		}
-
-		if len(conversations) == 0 {
+		if !ok {
 			return fmt.Errorf("no conversations found")
 		}
-
-		// Get the most recent conversation
-		latest := conversations[0]
 
 		// Create a temporary file with the message
 		tmpFile, err := os.CreateTemp("", "edit-*.txt")

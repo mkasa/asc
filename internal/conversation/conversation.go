@@ -8,14 +8,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"asc/internal/config"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"golang.org/x/term"
 )
+
+// Turn is a single question/answer exchange within a conversation.
+type Turn struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
 
 type Conversation struct {
 	ID        string    `json:"id"`
@@ -24,10 +32,15 @@ type Conversation struct {
 	Response  string    `json:"response"`
 	FilePath  string    `json:"file_path"`
 	Context   string    `json:"context,omitempty"`
+	// Turns holds the full multi-round transcript for interactive conversations.
+	// It is absent for legacy single-turn files; Message/Response are kept
+	// populated for backward compatibility (preview column, edit/append prefill).
+	Turns []Turn `json:"turns,omitempty"`
 }
 
-func SaveNewConversation(response, message, context string, logger *log.Logger) error {
-	// Get data directory
+// writeConversation marshals c and writes it to its canonical path. FilePath is
+// set to the final filename before marshaling so a single write suffices.
+func writeConversation(c *Conversation, logger *log.Logger) error {
 	dataDir, err := config.GetDataDir()
 	if err != nil {
 		return fmt.Errorf("failed to get data directory: %w", err)
@@ -39,7 +52,21 @@ func SaveNewConversation(response, message, context string, logger *log.Logger) 
 		return fmt.Errorf("failed to create conversations directory: %w", err)
 	}
 
-	// Create new conversation
+	c.FilePath = filepath.Join(conversationsDir, c.ID+".json")
+	data, err := json.MarshalIndent(*c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal conversation: %w", err)
+	}
+	if err := os.WriteFile(c.FilePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to save conversation: %w", err)
+	}
+
+	logger.Debug("Saved conversation", "id", c.ID, "path", c.FilePath)
+	return nil
+}
+
+// SaveNewConversation saves a single question/answer pair as a new conversation.
+func SaveNewConversation(response, message, context string, logger *log.Logger) error {
 	conversation := Conversation{
 		ID:        time.Now().Format("20060102150405"),
 		Timestamp: time.Now(),
@@ -47,33 +74,71 @@ func SaveNewConversation(response, message, context string, logger *log.Logger) 
 		Response:  response,
 		Context:   context,
 	}
+	return writeConversation(&conversation, logger)
+}
 
-	// Convert to JSON
-	data, err := json.MarshalIndent(conversation, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal conversation: %w", err)
+// SaveConversationTurns writes or rewrites a multi-turn conversation. When id is
+// empty a fresh ID (and file) is generated; otherwise the existing file with that
+// ID is rewritten in place with a refreshed timestamp. Returns the conversation ID.
+func SaveConversationTurns(id string, turns []Turn, context string, logger *log.Logger) (string, error) {
+	if id == "" {
+		id = time.Now().Format("20060102150405")
 	}
-
-	// Save to file
-	filename := filepath.Join(conversationsDir, conversation.ID+".json")
-	if err := os.WriteFile(filename, data, 0644); err != nil {
-		return fmt.Errorf("failed to save conversation: %w", err)
+	conversation := Conversation{
+		ID:        id,
+		Timestamp: time.Now(),
+		Context:   context,
+		Turns:     turns,
 	}
-
-	// ファイルパスを設定
-	conversation.FilePath = filename
-
-	// ファイルパスを含めて再度保存
-	data, err = json.MarshalIndent(conversation, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal conversation with file path: %w", err)
+	conversation.syncCompatFields()
+	if err := writeConversation(&conversation, logger); err != nil {
+		return "", err
 	}
-	if err := os.WriteFile(filename, data, 0644); err != nil {
-		return fmt.Errorf("failed to save conversation with file path: %w", err)
-	}
+	return id, nil
+}
 
-	logger.Debug("Saved conversation", "id", conversation.ID, "path", filename)
-	return nil
+// syncCompatFields keeps the legacy Message/Response fields populated from Turns
+// so the view preview column and edit/append prefill keep working.
+func (c *Conversation) syncCompatFields() {
+	if len(c.Turns) == 0 {
+		return
+	}
+	c.Message = c.Turns[0].Question
+	c.Response = c.Turns[len(c.Turns)-1].Answer
+}
+
+// BuildTranscriptInput renders prior turns plus the new question into the text a
+// stateless provider receives. Mirrors the format used by the append command.
+func BuildTranscriptInput(prior []Turn, newQuestion string) string {
+	if len(prior) == 0 {
+		return newQuestion
+	}
+	var b strings.Builder
+	b.WriteString("Previous conversation:\n")
+	for _, t := range prior {
+		fmt.Fprintf(&b, "User: %s\nAI: %s\n", t.Question, t.Answer)
+	}
+	b.WriteString("\n# Follow-up question\n")
+	b.WriteString(newQuestion)
+	return b.String()
+}
+
+// RenderMarkdown produces the glow/pager document for a conversation, rendering
+// all turns when present and falling back to Message/Response for legacy files.
+func (c Conversation) RenderMarkdown() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Conversation %s\n", c.ID)
+	if c.Context != "" {
+		fmt.Fprintf(&b, "\n## Context\n%s\n", c.Context)
+	}
+	if len(c.Turns) > 0 {
+		for i, t := range c.Turns {
+			fmt.Fprintf(&b, "\n## User (turn %d)\n%s\n\n## AI (turn %d)\n%s\n", i+1, t.Question, i+1, t.Answer)
+		}
+	} else {
+		fmt.Fprintf(&b, "\n## User\n%s\n\n## AI\n%s", c.Message, c.Response)
+	}
+	return b.String()
 }
 
 func LoadConversations(logger *log.Logger) ([]Conversation, error) {
@@ -126,6 +191,23 @@ func LoadConversations(logger *log.Logger) ([]Conversation, error) {
 	return conversations, nil
 }
 
+// LatestConversation returns the most recent conversation by timestamp. The bool
+// is false when no conversations exist. LoadConversations returns files in an
+// unspecified order, so this sorts newest-first before picking.
+func LatestConversation(logger *log.Logger) (Conversation, bool, error) {
+	convs, err := LoadConversations(logger)
+	if err != nil {
+		return Conversation{}, false, err
+	}
+	if len(convs) == 0 {
+		return Conversation{}, false, nil
+	}
+	sort.Slice(convs, func(i, j int) bool {
+		return convs[i].Timestamp.After(convs[j].Timestamp)
+	})
+	return convs[0], true, nil
+}
+
 // getTerminalWidth returns the terminal width, defaulting to 80 if unable to determine
 func getTerminalWidth() int {
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
@@ -153,8 +235,7 @@ func ShowConversation(conv Conversation, logger *log.Logger) error {
 	}
 
 	// Format conversation content
-	content := fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
-		conv.ID, conv.Message, conv.Response)
+	content := conv.RenderMarkdown()
 
 	glowCmd.Stdin = strings.NewReader(content)
 	glowCmd.Stdout = os.Stdout
@@ -165,43 +246,33 @@ func ShowConversation(conv Conversation, logger *log.Logger) error {
 	return nil
 }
 
-func StartNewConversation(message string, usePerplexity bool, logger *log.Logger) error {
-	// Load context if exists
-	context, err := LoadContext(logger)
-	if err != nil {
-		logger.Error("Failed to load context", "error", err)
-		return err
-	}
-
-	// Prepend context to message if it exists (only for sgpt)
-	var fullMessage string
-	if !usePerplexity && context != "" {
-		fullMessage = fmt.Sprintf("# Context\n%s\n\n# Question\n%s", context, message)
-	} else {
-		fullMessage = message
-	}
-
-	// Execute AI command based on provider
-	var aiCmd *exec.Cmd
+// buildAICmd constructs the provider subprocess for a single message.
+func buildAICmd(aiInput string, usePerplexity bool) *exec.Cmd {
 	if usePerplexity {
-		aiCmd = exec.Command("perplexity", "-g", "--stream", "--citation", fullMessage)
-	} else {
-		aiCmd = exec.Command("sgpt", "--stream", fullMessage)
+		return exec.Command("perplexity", "-g", "--stream", "--citation", aiInput)
 	}
+	return exec.Command("sgpt", "--stream", aiInput)
+}
+
+// streamResponse runs the AI provider on aiInput, streams its output through glow
+// to stdout (with held-back-line anti-flicker), and returns the trimmed response.
+// It does not save anything.
+func streamResponse(aiInput string, usePerplexity bool, logger *log.Logger) (string, error) {
+	aiCmd := buildAICmd(aiInput, usePerplexity)
 	stdout, err := aiCmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 	aiCmd.Stderr = os.Stderr
 
 	if err := aiCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start AI command: %w", err)
+		return "", fmt.Errorf("failed to start AI command: %w", err)
 	}
 
 	// Check if style file exists
 	shareDir, err := config.GetShareDir()
 	if err != nil {
-		return fmt.Errorf("failed to get share directory: %w", err)
+		return "", fmt.Errorf("failed to get share directory: %w", err)
 	}
 	stylePath := filepath.Join(shareDir, "ggpt_glow_style.json")
 	hasStyleFile := false
@@ -216,12 +287,13 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 	var previousGlowOutput string
 	previousGlowOutput = ""
 
+	var response string
 	const HELD_OUT_LINE_COUNT = 4
 	for {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				if err != io.EOF {
-					return fmt.Errorf("error reading AI output: %w", err)
+					return "", fmt.Errorf("error reading AI output: %w", err)
 				}
 				// Stream is closed (EOF)
 				// break
@@ -231,13 +303,10 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 			for i := max(0, len(previousGlowOutputLines)-HELD_OUT_LINE_COUNT); i < len(previousGlowOutputLines); i++ {
 				fmt.Println(previousGlowOutputLines[i])
 			}
-			// Trim excessive trailing newlines before saving
-			response := strings.TrimRightFunc(buffer.String(), func(r rune) bool {
+			// Trim excessive trailing newlines before returning
+			response = strings.TrimRightFunc(buffer.String(), func(r rune) bool {
 				return r == '\n' || r == '\r'
 			})
-			if err := SaveNewConversation(response, message, context, logger); err != nil {
-				return fmt.Errorf("failed to save conversation: %w", err)
-			}
 			break
 		}
 		buffer.WriteString(scanner.Text() + "\n")
@@ -257,7 +326,7 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 		glowOutput = strings.Builder{}
 		glowCmd.Stdout = &glowOutput
 		if err := glowCmd.Run(); err != nil {
-			return fmt.Errorf("failed to execute glow: %w", err)
+			return "", fmt.Errorf("failed to execute glow: %w", err)
 		}
 		if previousGlowOutput != glowOutput.String() {
 			previousGlowOutputLines := strings.Split(previousGlowOutput, "\n")
@@ -270,10 +339,142 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 	}
 
 	if err := aiCmd.Wait(); err != nil {
-		return fmt.Errorf("AI command failed: %w", err)
+		return "", fmt.Errorf("AI command failed: %w", err)
 	}
 
+	return response, nil
+}
+
+func StartNewConversation(message string, usePerplexity bool, logger *log.Logger) error {
+	// Load context if exists
+	context, err := LoadContext(logger)
+	if err != nil {
+		logger.Error("Failed to load context", "error", err)
+		return err
+	}
+
+	// Prepend context to message if it exists (only for sgpt)
+	aiInput := message
+	if !usePerplexity && context != "" {
+		aiInput = fmt.Sprintf("# Context\n%s\n\n# Question\n%s", context, message)
+	}
+
+	response, err := streamResponse(aiInput, usePerplexity, logger)
+	if err != nil {
+		return err
+	}
+
+	if err := SaveNewConversation(response, message, context, logger); err != nil {
+		return fmt.Errorf("failed to save conversation: %w", err)
+	}
 	return nil
+}
+
+// RunInteractive runs a multi-round chat loop. When initialMessage is non-empty it
+// starts a fresh conversation with that message as the first turn. Otherwise it
+// resumes the most recent conversation (seeding the transcript from its turns, or
+// a legacy Message/Response pair) and continues writing to the same file. The loop
+// reads questions from stdin, streams each reply, and saves after every turn.
+// It exits cleanly on EOF (Ctrl-D) or the /exit and /quit commands.
+func RunInteractive(initialMessage string, usePerplexity bool, logger *log.Logger) error {
+	// Load context once (prepended to provider input for sgpt only, like new/append).
+	context, err := LoadContext(logger)
+	if err != nil {
+		logger.Error("Failed to load context", "error", err)
+		return err
+	}
+
+	var turns []Turn
+	convID := ""
+
+	// banner prints the session's opening system message in bold, followed by a
+	// blank line to visually separate it from the first streamed answer.
+	bold := lipgloss.NewStyle().Bold(true)
+	banner := func(msg string) {
+		fmt.Fprintf(os.Stderr, "%s\n\n", bold.Render(msg))
+	}
+
+	if initialMessage == "" {
+		// Resume the most recent conversation, if any.
+		latest, ok, err := LatestConversation(logger)
+		if err != nil {
+			logger.Debug("No conversations to resume", "error", err)
+		}
+		if ok {
+			convID = latest.ID
+			if len(latest.Turns) > 0 {
+				turns = append([]Turn(nil), latest.Turns...)
+			} else if latest.Message != "" || latest.Response != "" {
+				turns = []Turn{{Question: latest.Message, Answer: latest.Response}}
+			}
+			banner(fmt.Sprintf("Resuming conversation %s (%d turns). Type /exit to quit.", convID, len(turns)))
+		} else {
+			banner("No previous conversation; starting fresh. Type /exit to quit.")
+		}
+	} else {
+		banner("Starting a new conversation. Type /exit to quit.")
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	// processTurn sends a question, streams the reply, records and saves the turn.
+	processTurn := func(question string) error {
+		aiInput := BuildTranscriptInput(turns, question)
+		if !usePerplexity && context != "" {
+			aiInput = fmt.Sprintf("# Context\n%s\n\n# Question\n%s", context, aiInput)
+		}
+		response, err := streamResponse(aiInput, usePerplexity, logger)
+		if err != nil {
+			// Keep the session alive so the user can retry.
+			logger.Error("AI turn failed", "error", err)
+			return nil
+		}
+		turns = append(turns, Turn{Question: question, Answer: response})
+		newID, err := SaveConversationTurns(convID, turns, context, logger)
+		if err != nil {
+			logger.Error("Failed to save turn", "error", err)
+			return nil
+		}
+		convID = newID
+		return nil
+	}
+
+	if initialMessage != "" {
+		if err := processTurn(initialMessage); err != nil {
+			return err
+		}
+	}
+
+	for {
+		fmt.Print("\nyou> ")
+		line, err := reader.ReadString('\n')
+		question := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+
+		if err != nil {
+			if err == io.EOF {
+				// Process a trailing partial line (no newline) before exiting.
+				if question != "" && question != "/exit" && question != "/quit" {
+					fmt.Println()
+					_ = processTurn(question)
+				}
+				fmt.Fprintln(os.Stderr, "\nGoodbye.")
+				return nil
+			}
+			return fmt.Errorf("failed to read input: %w", err)
+		}
+
+		if question == "" {
+			continue
+		}
+		if question == "/exit" || question == "/quit" {
+			fmt.Fprintln(os.Stderr, "Goodbye.")
+			return nil
+		}
+
+		if err := processTurn(question); err != nil {
+			return err
+		}
+	}
 }
 
 // DeleteConversation deletes a conversation by its ID

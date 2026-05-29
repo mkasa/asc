@@ -95,15 +95,8 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 		return nil
 	}
 
-	// Format the content with context if it exists
-	var content string
-	if selected.Context != "" {
-		content = fmt.Sprintf("# Conversation %s\n\n## Context\n%s\n\n## User\n%s\n\n## AI\n%s",
-			selected.ID, selected.Context, selected.Message, selected.Response)
-	} else {
-		content = fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
-			selected.ID, selected.Message, selected.Response)
-	}
+	// Format the content (renders all turns when present, falls back to Message/Response)
+	content := selected.RenderMarkdown()
 
 	if _, err := tempFile.WriteString(content); err != nil {
 		logger.Error("Failed to write to temp file", "error", err)
@@ -139,15 +132,8 @@ func openPager(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
 		return nil
 	}
 
-	// Format the content with context if it exists
-	var content string
-	if selected.Context != "" {
-		content = fmt.Sprintf("# Conversation %s\n\n## Context\n%s\n\n## User\n%s\n\n## AI\n%s",
-			selected.ID, selected.Context, selected.Message, selected.Response)
-	} else {
-		content = fmt.Sprintf("# Conversation %s\n\n## User\n%s\n\n## AI\n%s",
-			selected.ID, selected.Message, selected.Response)
-	}
+	// Format the content (renders all turns when present, falls back to Message/Response)
+	content := selected.RenderMarkdown()
 
 	if _, err := tempFile.WriteString(content); err != nil {
 		logger.Error("Failed to write to temp file", "error", err)
