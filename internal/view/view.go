@@ -24,6 +24,10 @@ type model struct {
 	showConfirm   bool
 	selectedID    string
 	terminalWidth int
+	// pendingReply holds the edited message to send to the AI after the TUI
+	// exits. Running "asc new" outside the program keeps the streamed reply on
+	// screen instead of having it clobbered by an inline repaint of the menu.
+	pendingReply string
 }
 
 type editCompleteMsg struct {
@@ -280,13 +284,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case editCompleteMsg:
-		// Start new conversation with edited message
-		return m, tea.ExecProcess(exec.Command("asc", "new", msg.message), func(err error) tea.Msg {
-			if err != nil {
-				m.logger.Error("Failed to execute asc new", "error", err)
-			}
-			return tea.Quit
-		})
+		// Defer sending the edited message until after the TUI exits so the
+		// streamed reply isn't immediately overwritten by an inline repaint of
+		// the menu. The actual "asc new" call happens in RunView.
+		m.pendingReply = msg.message
+		return m, tea.Quit
 	}
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
@@ -371,8 +373,23 @@ func StartView(logger *log.Logger) error {
 	m.conversations = conversations
 
 	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return err
+	}
+
+	// If the user edited a message, send it now that the TUI has exited so the
+	// streamed reply stays on screen instead of being clobbered by the menu.
+	if fm, ok := finalModel.(model); ok && fm.pendingReply != "" {
+		logger.Debug("Sending edited message", "message", fm.pendingReply)
+		ascCmd := exec.Command("asc", "new", fm.pendingReply)
+		ascCmd.Stdin = os.Stdin
+		ascCmd.Stdout = os.Stdout
+		ascCmd.Stderr = os.Stderr
+		if err := ascCmd.Run(); err != nil {
+			logger.Error("Failed to execute asc new", "error", err)
+			return err
+		}
 	}
 
 	return nil
