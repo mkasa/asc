@@ -19,9 +19,9 @@ A command-line tool for interacting with AI. Have natural conversations with AI 
 ### Prerequisites
 
 The following external commands are required:
-- **glow** - For markdown rendering and display
-- **sgpt** - Default AI provider (streaming mode)
-- **perplexity** (optional) - Alternative AI provider
+- **[glow](https://github.com/charmbracelet/glow)** - For markdown rendering and display
+- **[sgpt](https://github.com/tbckr/sgpt)** - Default AI provider (streaming mode)
+- **[perplexity](https://github.com/mkasa/perplexity-cli)** (optional) - Alternative AI provider
 
 ### From Source
 
