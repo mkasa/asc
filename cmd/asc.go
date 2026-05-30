@@ -18,9 +18,10 @@ import (
 
 var (
 	// Global flags
-	verbose       bool
-	debug         bool
-	usePerplexity bool
+	verbose         bool
+	debug           bool
+	usePerplexity   bool
+	pickInteractive bool
 
 	// Version information
 	version = "dev"
@@ -126,6 +127,7 @@ func init() {
 	// Add perplexity flag to commands that interact with AI
 	newCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 	interactiveCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
+	interactiveCmd.Flags().BoolVarP(&pickInteractive, "pick", "P", false, "Pick the conversation to resume from an interactive list")
 	appendCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 	editCmd.Flags().BoolVarP(&usePerplexity, "perplexity", "p", false, "Use perplexity command instead of sgpt")
 }
@@ -174,6 +176,10 @@ If a message is provided, a new conversation is started with it as the first
 message. If no message is provided, the most recent conversation is resumed and
 continued.
 
+Use -P/--pick to choose which conversation to resume from an interactive list
+instead of defaulting to the most recent one. A message given alongside --pick is
+sent as the next turn of the chosen conversation.
+
 Type /exit or /quit (or press Ctrl-D) to end the session. The conversation is
 saved after every turn.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -183,7 +189,7 @@ saved after every turn.`,
 		}
 		logger.Debug("Starting interactive conversation", "initial", initial)
 
-		return conversation.RunInteractive(initial, usePerplexity, logger)
+		return conversation.RunInteractive(initial, usePerplexity, pickInteractive, logger)
 	},
 }
 

@@ -220,7 +220,7 @@ func getTerminalWidth() int {
 func ShowConversation(conv Conversation, logger *log.Logger) error {
 	// Get terminal width
 	terminalWidth := getTerminalWidth()
-	
+
 	// Execute glow command with conversation content
 	glowCmd := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth-2))
 
@@ -375,8 +375,24 @@ func StartNewConversation(message string, usePerplexity bool, logger *log.Logger
 // resumes the most recent conversation (seeding the transcript from its turns, or
 // a legacy Message/Response pair) and continues writing to the same file. The loop
 // reads questions from stdin, streams each reply, and saves after every turn.
+// conversationTurns returns a conversation's turns for resuming, falling back to
+// the legacy single Message/Response pair when no multi-turn transcript exists.
+func conversationTurns(c Conversation) []Turn {
+	if len(c.Turns) > 0 {
+		return append([]Turn(nil), c.Turns...)
+	}
+	if c.Message != "" || c.Response != "" {
+		return []Turn{{Question: c.Message, Answer: c.Response}}
+	}
+	return nil
+}
+
 // It exits cleanly on EOF (Ctrl-D) or the /exit and /quit commands.
-func RunInteractive(initialMessage string, usePerplexity bool, logger *log.Logger) error {
+//
+// When pick is true, the user chooses which conversation to resume from an
+// interactive list instead of defaulting to the most recent one. A provided
+// initialMessage is still sent as the first turn of the chosen conversation.
+func RunInteractive(initialMessage string, usePerplexity bool, pick bool, logger *log.Logger) error {
 	// Load context once (prepended to provider input for sgpt only, like new/append).
 	context, err := LoadContext(logger)
 	if err != nil {
@@ -394,7 +410,22 @@ func RunInteractive(initialMessage string, usePerplexity bool, logger *log.Logge
 		fmt.Fprintf(os.Stderr, "%s\n\n", bold.Render(msg))
 	}
 
-	if initialMessage == "" {
+	switch {
+	case pick:
+		// Let the user choose which conversation to resume from a list.
+		selected, ok, err := PickConversation(logger)
+		if err != nil {
+			logger.Error("Failed to pick conversation", "error", err)
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(os.Stderr, "No conversation selected.")
+			return nil
+		}
+		convID = selected.ID
+		turns = conversationTurns(selected)
+		banner(fmt.Sprintf("Resuming conversation %s (%d turns). Type /exit to quit.", convID, len(turns)))
+	case initialMessage == "":
 		// Resume the most recent conversation, if any.
 		latest, ok, err := LatestConversation(logger)
 		if err != nil {
@@ -402,16 +433,12 @@ func RunInteractive(initialMessage string, usePerplexity bool, logger *log.Logge
 		}
 		if ok {
 			convID = latest.ID
-			if len(latest.Turns) > 0 {
-				turns = append([]Turn(nil), latest.Turns...)
-			} else if latest.Message != "" || latest.Response != "" {
-				turns = []Turn{{Question: latest.Message, Answer: latest.Response}}
-			}
+			turns = conversationTurns(latest)
 			banner(fmt.Sprintf("Resuming conversation %s (%d turns). Type /exit to quit.", convID, len(turns)))
 		} else {
 			banner("No previous conversation; starting fresh. Type /exit to quit.")
 		}
-	} else {
+	default:
 		banner("Starting a new conversation. Type /exit to quit.")
 	}
 

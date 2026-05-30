@@ -1,5 +1,7 @@
 # ASC (AI Shell Chat)
 
+> **Pronunciation:** `asc` is read as "ask".
+
 A command-line tool for interacting with AI. Have natural conversations with AI to perform tasks or get information.
 
 ## Features
@@ -93,6 +95,55 @@ asc edit
 # Edit with perplexity
 asc edit -p
 ```
+
+### Interactive Mode
+```bash
+# Start a fresh interactive, multi-round chat
+asc interactive "Tell me about Go"
+
+# Using the short alias
+asc i "Tell me about Go"
+
+# Resume the most recent conversation and keep chatting
+asc i
+
+# Pick which conversation to resume from an interactive list
+asc i -P
+asc i --pick
+
+# Use perplexity instead of sgpt for the session
+asc i -p "Tell me about Go"
+```
+
+`asc i` (alias for `asc interactive`) opens a back-and-forth chat session:
+
+1. You're prompted at a `you> ` prompt for a message.
+2. The reply is streamed in real time (rendered through `glow`).
+3. You're prompted again, repeating for as many rounds as you like.
+
+Each turn re-sends the accumulated transcript, so the AI keeps the full context
+of the conversation. The conversation is **saved after every turn**, so you never
+lose progress.
+
+**Starting vs. resuming:**
+- If you pass a message (`asc i "..."`), a new conversation starts with it as the
+  first turn.
+- If you pass no message (`asc i`), the most recent conversation is resumed and
+  continued. If there is no previous conversation, a fresh one is started.
+- With `-P`/`--pick` (`asc i -P`), an interactive list of your saved
+  conversations opens so you can choose exactly which one to resume — use the
+  arrow keys to move, Enter to resume, and `q`/Esc to cancel. A message given
+  alongside `--pick` is sent as the next turn of the chosen conversation.
+
+**Ending the session:**
+- Type `/exit` or `/quit` and press Enter.
+- Or press `Ctrl-D` (EOF).
+
+In all cases the session prints `Goodbye.` and exits cleanly.
+
+**Context:** As with `new` and `append`, the context file is prepended to each
+message when using `sgpt` (the default). Context is **not** prepended when using
+perplexity (`-p`).
 
 ### View History
 ```bash

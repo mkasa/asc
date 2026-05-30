@@ -60,6 +60,12 @@ The app streams AI responses in real-time by:
 ### Command Architecture
 - `new` (alias: `n`) - Start new conversation with context prepending
   - Supports `-p/--perplexity` flag to use perplexity instead of sgpt
+- `interactive` (alias: `i`) - Start or resume an interactive, multi-round chat
+  - With a message argument: starts a new conversation using it as the first turn
+  - With no argument: resumes the most recent conversation (or starts fresh if none)
+  - Re-sends the accumulated transcript each turn; saves after every turn
+  - Exits on `/exit`, `/quit`, or Ctrl-D (EOF)
+  - Supports `-p/--perplexity` flag to use perplexity instead of sgpt
 - `append` (alias: `a`) - Continue previous conversation with context
   - Supports `-p/--perplexity` flag to use perplexity instead of sgpt
 - `edit` (alias: `e`) - Edit and resend previous message using $EDITOR
