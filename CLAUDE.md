@@ -20,6 +20,7 @@ The application requires external commands to be installed:
 - `glow` - For markdown rendering and display
 - `sgpt` - For AI interaction (streaming mode) - default provider
 - `perplexity` - Alternative AI provider (optional, use with `--perplexity` or `-p` flag)
+- `tgv` - Markdown viewer (optional); when on PATH it replaces glow as the viewer in `asc view`
 
 ## Architecture
 
@@ -78,7 +79,7 @@ The app streams AI responses in real-time by:
 The view command uses Bubble Tea with:
 - Table widget for conversation listing
 - Dynamic column width calculation based on terminal size
-- Keybindings: v (glow), V (less), e (edit), d (delete), q (quit)
+- Keybindings: v (tgv if on PATH, else glow), t (tgv), V (less), e (edit), d (delete), q (quit)
 - Confirmation dialogs for destructive actions
 
 ### Context System

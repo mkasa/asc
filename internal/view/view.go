@@ -24,6 +24,9 @@ type model struct {
 	showConfirm   bool
 	selectedID    string
 	terminalWidth int
+	// hasTgv reports whether tgv is on PATH; when it is, tgv replaces glow as
+	// the default viewer.
+	hasTgv bool
 	// pendingReply holds the edited message to send to the AI after the TUI
 	// exits. Running "asc new" outside the program keeps the streamed reply on
 	// screen instead of having it clobbered by an inline repaint of the menu.
@@ -80,7 +83,13 @@ func initialModel(logger *log.Logger, terminalWidth int) model {
 		table:         t,
 		logger:        logger,
 		terminalWidth: terminalWidth,
+		hasTgv:        hasTgv(),
 	}
+}
+
+func hasTgv() bool {
+	_, err := exec.LookPath("tgv")
+	return err == nil
 }
 
 func (m model) Init() tea.Cmd {
@@ -115,6 +124,34 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 			c.Args = append(c.Args, "--style", stylePath)
 		}
 	}
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Clean up the temporary file
+		if err := os.Remove(tempFile.Name()); err != nil {
+			logger.Error("Failed to remove temporary file", "error", err)
+		}
+		return nil
+	})
+}
+
+func openTgv(selected conversation.Conversation, logger *log.Logger) tea.Cmd {
+	// Create a temporary file to save the conversation message
+	tempFile, err := os.CreateTemp("", "conversation-*.md")
+	if err != nil {
+		logger.Error("Failed to create temp file", "error", err)
+		return nil
+	}
+
+	// Format the content (renders all turns when present, falls back to Message/Response)
+	content := selected.RenderMarkdown()
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		logger.Error("Failed to write to temp file", "error", err)
+		return nil
+	}
+	tempFile.Close()
+
+	// Execute tgv command (it sizes itself to the terminal)
+	c := exec.Command("tgv", tempFile.Name())
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Clean up the temporary file
 		if err := os.Remove(tempFile.Name()); err != nil {
@@ -240,7 +277,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(m.conversations) > 0 {
 				selected := m.conversations[m.table.Cursor()]
+				if m.hasTgv {
+					return m, openTgv(selected, m.logger)
+				}
 				return m, openGlow(selected, m.logger, m.terminalWidth)
+			}
+			return m, nil
+		case "t":
+			if len(m.conversations) > 0 {
+				if !m.hasTgv {
+					m.logger.Error("Command not found", "command", "tgv")
+					return m, nil
+				}
+				selected := m.conversations[m.table.Cursor()]
+				return m, openTgv(selected, m.logger)
 			}
 			return m, nil
 		case "V":
@@ -298,8 +348,13 @@ func (m model) View() string {
 		BorderForeground(lipgloss.Color("240")).
 		Padding(1, 2)
 
+	defaultViewer := "glow"
+	if m.hasTgv {
+		defaultViewer = "tgv"
+	}
 	helpContent := "Keybindings:\n" +
-		"  v: View conversation with glow\n" +
+		"  v: View conversation with " + defaultViewer + "\n" +
+		"  t: View conversation with tgv\n" +
 		"  V: View conversation with less\n" +
 		"  e: Edit conversation\n" +
 		"  d: Delete conversation\n" +

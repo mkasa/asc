@@ -22,6 +22,7 @@ The following external commands are required:
 - **[glow](https://github.com/charmbracelet/glow)** - For markdown rendering and display
 - **[sgpt](https://github.com/tbckr/sgpt)** - Default AI provider (streaming mode)
 - **[perplexity](https://github.com/mkasa/perplexity-cli)** (optional) - Alternative AI provider
+- **tgv** (optional) - Markdown viewer; when it is on PATH, `asc view` opens conversations with it instead of glow (`t` always opens tgv)
 
 ### From Source
 
