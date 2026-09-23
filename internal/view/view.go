@@ -41,13 +41,13 @@ type editCompleteMsg struct {
 func calculateColumnWidths(terminalWidth int) (idWidth, dateWidth, messageWidth int) {
 	// Account for borders and table internal spacing
 	// Each column seems to have additional padding in the table component
-	availableWidth := terminalWidth - 8  // Increased from 4 to account for table padding
-	
+	availableWidth := terminalWidth - 8 // Increased from 4 to account for table padding
+
 	// Fixed widths for ID and Date columns
-	idWidth = 14  // Full ID: 20250706023320
+	idWidth = 14   // Full ID: 20250706023320
 	dateWidth = 19 // Full date: 2025-07-06 02:33:20
 	messageWidth = availableWidth - idWidth - dateWidth
-	
+
 	return idWidth, dateWidth, messageWidth
 }
 
@@ -115,7 +115,7 @@ func openGlow(selected conversation.Conversation, logger *log.Logger, terminalWi
 
 	// Execute glow command with terminal width
 	c := exec.Command("glow", "-p", "-w", fmt.Sprintf("%d", terminalWidth-2), tempFile.Name())
-	
+
 	// Check if style file exists and add it if available
 	shareDir, err := config.GetShareDir()
 	if err == nil {
@@ -262,7 +262,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Update table rows with consistent width calculations
 				idWidth, dateWidth, messageWidth := calculateColumnWidths(m.terminalWidth)
-				
+
 				var rows []table.Row
 				for _, conv := range m.conversations {
 					rows = append(rows, table.Row{
@@ -405,7 +405,7 @@ func StartView(logger *log.Logger) error {
 
 	// Create table rows with consistent width calculations
 	idWidth, dateWidth, messageWidth := calculateColumnWidths(width)
-	
+
 	var rows []table.Row
 	for _, conv := range conversations {
 		rows = append(rows, table.Row{
