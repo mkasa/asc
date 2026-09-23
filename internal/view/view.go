@@ -283,6 +283,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, openGlow(selected, m.logger, m.terminalWidth)
 			}
 			return m, nil
+		case "g":
+			if len(m.conversations) > 0 {
+				selected := m.conversations[m.table.Cursor()]
+				return m, openGlow(selected, m.logger, m.terminalWidth)
+			}
+			return m, nil
 		case "t":
 			if len(m.conversations) > 0 {
 				if !m.hasTgv {
@@ -355,6 +361,7 @@ func (m model) View() string {
 	helpContent := "Keybindings:\n" +
 		"  v: View conversation with " + defaultViewer + "\n" +
 		"  t: View conversation with tgv\n" +
+		"  g: View conversation with glow\n" +
 		"  V: View conversation with less\n" +
 		"  e: Edit conversation\n" +
 		"  d: Delete conversation\n" +

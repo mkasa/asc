@@ -79,7 +79,7 @@ The app streams AI responses in real-time by:
 The view command uses Bubble Tea with:
 - Table widget for conversation listing
 - Dynamic column width calculation based on terminal size
-- Keybindings: v (tgv if on PATH, else glow), t (tgv), V (less), e (edit), d (delete), q (quit)
+- Keybindings: v (tgv if on PATH, else glow), t (tgv), g (glow), V (less), e (edit), d (delete), q (quit)
 - Confirmation dialogs for destructive actions
 
 ### Context System
